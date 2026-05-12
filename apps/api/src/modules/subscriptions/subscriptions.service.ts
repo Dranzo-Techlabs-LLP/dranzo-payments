@@ -45,13 +45,24 @@ export class SubscriptionsService {
       order: { nextRenewalDate: 'ASC' },
     });
     const org = await this.orgs.findOne({ where: { id: orgId } });
+
+    // Fetch any tiers that were soft-deleted so we can still price legacy subs.
+    const missingTierIds = rows
+      .filter((s) => !s.pricingTier && s.pricingTierId)
+      .map((s) => s.pricingTierId);
+    const ghostTiers = missingTierIds.length
+      ? await this.tiers.find({ where: missingTierIds.map((id) => ({ id, organizationId: orgId })), withDeleted: true })
+      : [];
+    const ghostMap = new Map(ghostTiers.map((t) => [t.id, t]));
+
     return rows.map((s) => {
+      const tier = s.pricingTier ?? ghostMap.get(s.pricingTierId);
       let feePreview: { subtotal: number; tax: number; total: number; currency: string } | null = null;
       try {
-        if (org && s.pricingTier && s.client) {
+        if (org && tier && s.client) {
           const p = this.pricing.preview(
             s,
-            s.pricingTier,
+            tier,
             org,
             s.client,
             s.billingCycle,
@@ -63,7 +74,7 @@ export class SubscriptionsService {
       } catch {
         feePreview = null;
       }
-      return { ...s, feePreview };
+      return { ...s, pricingTier: tier ?? null, feePreview };
     });
   }
 
@@ -135,13 +146,27 @@ export class SubscriptionsService {
   }
 
   async update(user: AuthenticatedUser, id: string, dto: UpdateSubscriptionDto, ip?: string) {
-    const s = await this.findOne(user.organizationId, id);
+    // Load without relations so a soft-deleted tier (relation null) doesn't
+    // cascade-null the pricing_tier_id FK on save.
+    const s = await this.subs.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!s) throw new NotFoundException();
     const before = { ...s };
     if (dto.status === SubscriptionStatus.CANCELLED) {
       s.autoRenew = false;
     }
 
-    Object.assign(s, dto, { updatedBy: user.userId });
+    if (dto.unitCount !== undefined) s.unitCount = dto.unitCount;
+    if (dto.reminderLeadDays !== undefined) s.reminderLeadDays = dto.reminderLeadDays;
+    if (dto.autoRenew !== undefined) s.autoRenew = dto.autoRenew;
+    if (dto.status !== undefined) s.status = dto.status;
+    if (dto.notes !== undefined) s.notes = dto.notes;
+    if (dto.billingCycle !== undefined) s.billingCycle = dto.billingCycle;
+    if (dto.nextRenewalDate !== undefined) s.nextRenewalDate = dto.nextRenewalDate;
+    // customRateOverride: explicit handling — null clears, undefined leaves alone
+    if ('customRateOverride' in dto) {
+      s.customRateOverride = (dto.customRateOverride as number | null | undefined) ?? null;
+    }
+    s.updatedBy = user.userId;
 
     // If billing cycle or next renewal date changed, recompute the current
     // period window so invoice generation lines up with the new anchor.
@@ -223,6 +248,7 @@ export class SubscriptionsService {
     if (!s) throw new NotFoundException();
     const tier = await this.tiers.findOne({
       where: { id: s.pricingTierId, organizationId: orgId },
+      withDeleted: true,
     });
     if (!tier) throw new NotFoundException('Pricing tier missing');
     const org = await this.orgs.findOne({ where: { id: orgId } });

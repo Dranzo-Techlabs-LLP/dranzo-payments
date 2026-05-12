@@ -15,7 +15,9 @@ import {
 
 export class UpdateSubscriptionDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) unitCount?: number;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) customRateOverride?: number;
+  @ApiPropertyOptional({ description: 'null to clear; integer paise to set.' })
+  @IsOptional()
+  customRateOverride?: number | null;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) reminderLeadDays?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() autoRenew?: boolean;
   @ApiPropertyOptional({ enum: SubscriptionStatus })

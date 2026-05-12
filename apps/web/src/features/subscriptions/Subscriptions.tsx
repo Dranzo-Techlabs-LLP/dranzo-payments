@@ -34,6 +34,7 @@ interface CreateForm {
   reminderLeadDays: number;
   autoRenew: boolean;
   notes: string;
+  customRateRupees: string; // blank = use catalog tier rate
 }
 
 interface EditForm {
@@ -44,6 +45,7 @@ interface EditForm {
   notes: string;
   billingCycle: Cycle;
   nextRenewalDate: string;
+  customRateRupees: string;
 }
 
 function isPerUser(m: Model) {
@@ -59,6 +61,7 @@ const CREATE_EMPTY: CreateForm = {
   reminderLeadDays: 7,
   autoRenew: true,
   notes: '',
+  customRateRupees: '',
 };
 
 export function Subscriptions() {
@@ -98,7 +101,7 @@ export function Subscriptions() {
   const [form, setForm] = useState<CreateForm>(CREATE_EMPTY);
   const [edit, setEdit] = useState<EditForm>({
     unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '',
-    billingCycle: 'MONTHLY', nextRenewalDate: '',
+    billingCycle: 'MONTHLY', nextRenewalDate: '', customRateRupees: '',
   });
   const [preview, setPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -113,28 +116,45 @@ export function Subscriptions() {
     }
     const ctl = new AbortController();
     setPreviewBusy(true);
+    const override = form.customRateRupees.trim() === '' ? undefined : Math.round(parseFloat(form.customRateRupees) * 100);
     api.post('/pricing/preview', {
       pricingTierId: form.pricingTierId,
       clientId: form.clientId || undefined,
       unitCount: form.unitCount,
       billingCycle: form.billingCycle,
+      customRateOverride: override,
     }, { signal: ctl.signal })
       .then((r) => setPreview({ subtotal: r.data.subtotal, tax: r.data.tax, total: r.data.total, currency: r.data.currency }))
       .catch(() => setPreview(null))
       .finally(() => setPreviewBusy(false));
     return () => ctl.abort();
-  }, [creating, form.pricingTierId, form.unitCount, form.clientId, form.billingCycle]);
+  }, [creating, form.pricingTierId, form.unitCount, form.clientId, form.billingCycle, form.customRateRupees]);
 
   const create = useMutation({
     mutationFn: async () => {
       const tier = tiers.find((t) => t.id === form.pricingTierId);
-      return (await api.post('/subscriptions', { ...form, planId: tier?.planId })).data;
+      const { customRateRupees, ...rest } = form;
+      const body: any = { ...rest, planId: tier?.planId };
+      if (customRateRupees.trim() !== '') {
+        body.customRateOverride = Math.round(parseFloat(customRateRupees) * 100);
+      }
+      return (await api.post('/subscriptions', body)).data;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setCreating(false); setForm(CREATE_EMPTY); },
   });
 
   const update = useMutation({
-    mutationFn: async () => editingId ? (await api.patch(`/subscriptions/${editingId}`, edit)).data : null,
+    mutationFn: async () => {
+      if (!editingId) return null;
+      const { customRateRupees, ...rest } = edit;
+      const body: any = { ...rest };
+      if (customRateRupees.trim() === '') {
+        body.customRateOverride = null;
+      } else {
+        body.customRateOverride = Math.round(parseFloat(customRateRupees) * 100);
+      }
+      return (await api.patch(`/subscriptions/${editingId}`, body)).data;
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setEditingId(null); },
   });
 
@@ -158,6 +178,7 @@ export function Subscriptions() {
       notes: s.notes ?? '',
       billingCycle: s.billingCycle,
       nextRenewalDate: s.nextRenewalDate,
+      customRateRupees: s.customRateOverride != null ? String(Number(s.customRateOverride) / 100) : '',
     });
     setEditingId(s.id);
   }
@@ -316,6 +337,26 @@ export function Subscriptions() {
             <input className="input" type="number" min={0} value={form.reminderLeadDays} onChange={(e) => setForm({ ...form, reminderLeadDays: +e.target.value })} />
           </Field>
 
+          <Field
+            label="Custom rate override (₹)"
+            hint={
+              selectedTier && isPerUser(selectedTier.modelType)
+                ? 'Override per-user rate (per cycle) for this client only. Leave blank to use the catalog rate.'
+                : 'Override total flat fee (per cycle) for this client only. Leave blank to use the catalog rate.'
+            }
+            className="md:col-span-2"
+          >
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={0.01}
+              placeholder="leave blank to use catalog rate"
+              value={form.customRateRupees}
+              onChange={(e) => setForm({ ...form, customRateRupees: e.target.value })}
+            />
+          </Field>
+
           <Field label="Notes" className="md:col-span-2">
             <textarea className="input min-h-[60px]" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </Field>
@@ -409,6 +450,21 @@ export function Subscriptions() {
             <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+          </Field>
+          <Field
+            label="Custom rate override (₹)"
+            hint="Per client override. Leave blank to use the catalog tier rate."
+            className="md:col-span-2"
+          >
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={0.01}
+              placeholder="leave blank to use catalog rate"
+              value={edit.customRateRupees}
+              onChange={(e) => setEdit({ ...edit, customRateRupees: e.target.value })}
+            />
           </Field>
           <Field label="Notes" className="md:col-span-2">
             <textarea className="input min-h-[80px]" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />

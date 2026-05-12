@@ -33,7 +33,7 @@ export class AuthService {
     @InjectRepository(Organization)
     private readonly orgs: Repository<Organization>,
     @InjectRepository(RefreshToken)
-    private readonly refresh: Repository<RefreshToken>,
+    private readonly refreshTokens: Repository<RefreshToken>,
     @InjectRepository(Invitation)
     private readonly invitations: Repository<Invitation>,
     private readonly jwt: JwtService,
@@ -121,7 +121,7 @@ export class AuthService {
 
   async refresh(token: string, ip?: string): Promise<IssuedTokens> {
     const hash = this.hash(token);
-    const row = await this.refresh.findOne({ where: { tokenHash: hash } });
+    const row = await this.refreshTokens.findOne({ where: { tokenHash: hash } });
     if (!row || row.revokedAt || row.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -132,17 +132,17 @@ export class AuthService {
 
     // rotate
     row.revokedAt = new Date();
-    await this.refresh.save(row);
+    await this.refreshTokens.save(row);
 
     return this.issueTokens(user, ip);
   }
 
   async logout(refreshToken: string): Promise<void> {
     const hash = this.hash(refreshToken);
-    const row = await this.refresh.findOne({ where: { tokenHash: hash } });
+    const row = await this.refreshTokens.findOne({ where: { tokenHash: hash } });
     if (row && !row.revokedAt) {
       row.revokedAt = new Date();
-      await this.refresh.save(row);
+      await this.refreshTokens.save(row);
     }
   }
 
@@ -178,8 +178,8 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setTime(expiresAt.getTime() + this.ttlToMs(refreshTtl));
 
-    await this.refresh.save(
-      this.refresh.create({
+    await this.refreshTokens.save(
+      this.refreshTokens.create({
         userId: user.id,
         tokenHash: refreshHash,
         expiresAt,

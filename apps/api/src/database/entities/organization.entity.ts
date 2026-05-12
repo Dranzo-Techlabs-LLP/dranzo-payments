@@ -46,6 +46,12 @@ export class Organization extends BaseEntity {
   @Column({ type: 'varchar', length: 64, name: 'timezone', default: 'Asia/Kolkata' })
   timezone!: string;
 
+  @Column({ type: 'varchar', length: 8, name: 'home_state_code', nullable: true })
+  homeStateCode?: string | null;
+
+  @Column({ type: 'int', name: 'default_reminder_lead_days', default: 7 })
+  defaultReminderLeadDays!: number;
+
   @OneToMany(() => User, (u) => u.organization)
   users?: User[];
 }

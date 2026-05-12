@@ -12,8 +12,15 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   app.use(helmet());
+  const allowed = (
+    config.get<string>('WEB_URL', 'http://localhost:5173,http://localhost:5174') +
+    ',http://localhost:5173,http://localhost:5174'
+  )
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: config.get<string>('WEB_URL', 'http://localhost:5173'),
+    origin: (origin, cb) => cb(null, !origin || allowed.includes(origin)),
     credentials: true,
   });
   app.setGlobalPrefix('api');

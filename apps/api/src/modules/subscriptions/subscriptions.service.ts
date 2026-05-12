@@ -1,0 +1,199 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { LessThanOrEqual, Repository } from 'typeorm';
+import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
+import { SubscriptionEvent } from '../../database/entities/subscription-event.entity';
+import { Client } from '../../database/entities/client.entity';
+import { Plan } from '../../database/entities/plan.entity';
+import { PricingTier } from '../../database/entities/pricing-tier.entity';
+import { Organization } from '../../database/entities/organization.entity';
+import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { AuditService } from '../audit/audit.service';
+import { nextRenewal, periodEnd } from '../../common/util/date-util';
+import { PricingEngine, InvoicePreview } from '../pricing/pricing.engine';
+
+@Injectable()
+export class SubscriptionsService {
+  constructor(
+    @InjectRepository(Subscription) private readonly subs: Repository<Subscription>,
+    @InjectRepository(SubscriptionEvent) private readonly events: Repository<SubscriptionEvent>,
+    @InjectRepository(Client) private readonly clients: Repository<Client>,
+    @InjectRepository(Plan) private readonly plans: Repository<Plan>,
+    @InjectRepository(PricingTier) private readonly tiers: Repository<PricingTier>,
+    @InjectRepository(Organization) private readonly orgs: Repository<Organization>,
+    private readonly audit: AuditService,
+    private readonly pricing: PricingEngine,
+  ) {}
+
+  list(orgId: string) {
+    return this.subs.find({
+      where: { organizationId: orgId },
+      relations: { client: true, plan: true, pricingTier: true },
+      order: { nextRenewalDate: 'ASC' },
+    });
+  }
+
+  async findOne(orgId: string, id: string) {
+    const s = await this.subs.findOne({
+      where: { id, organizationId: orgId },
+      relations: { client: true, plan: true, pricingTier: true },
+    });
+    if (!s) throw new NotFoundException();
+    return s;
+  }
+
+  async create(user: AuthenticatedUser, dto: CreateSubscriptionDto, ip?: string) {
+    const client = await this.clients.findOne({
+      where: { id: dto.clientId, organizationId: user.organizationId },
+    });
+    if (!client) throw new NotFoundException('Client not found');
+    const plan = await this.plans.findOne({
+      where: { id: dto.planId, organizationId: user.organizationId },
+    });
+    if (!plan) throw new NotFoundException('Plan not found');
+    const tier = await this.tiers.findOne({
+      where: { id: dto.pricingTierId, organizationId: user.organizationId },
+    });
+    if (!tier) throw new NotFoundException('PricingTier not found');
+
+    const start = dto.startDate;
+    const renewal = nextRenewal(start, dto.billingCycle);
+    const end = periodEnd(start, dto.billingCycle);
+
+    const sub = this.subs.create({
+      organizationId: user.organizationId,
+      clientId: client.id,
+      planId: plan.id,
+      pricingTierId: tier.id,
+      billingCycle: dto.billingCycle,
+      startDate: start,
+      currentPeriodStart: start,
+      currentPeriodEnd: end,
+      nextRenewalDate: renewal,
+      unitCount: dto.unitCount ?? 1,
+      customRateOverride: dto.customRateOverride ?? null,
+      currency: tier.currency,
+      reminderLeadDays: dto.reminderLeadDays ?? 7,
+      autoRenew: dto.autoRenew ?? true,
+      status: SubscriptionStatus.ACTIVE,
+      notes: dto.notes,
+      createdBy: user.userId,
+      updatedBy: user.userId,
+    });
+    const saved = await this.subs.save(sub);
+
+    await this.events.save(this.events.create({
+      organizationId: user.organizationId,
+      subscriptionId: saved.id,
+      eventType: 'created',
+      payload: { startDate: start, billingCycle: dto.billingCycle, unitCount: saved.unitCount },
+      actorId: user.userId,
+    }));
+
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'create_subscription', entity: 'Subscription', entityId: saved.id,
+      after: { clientId: client.id, planId: plan.id, tier: tier.modelType, nextRenewal: renewal },
+      ip,
+    });
+
+    return saved;
+  }
+
+  async update(user: AuthenticatedUser, id: string, dto: UpdateSubscriptionDto, ip?: string) {
+    const s = await this.findOne(user.organizationId, id);
+    const before = { ...s };
+    if (dto.status === SubscriptionStatus.CANCELLED) {
+      s.autoRenew = false;
+    }
+    Object.assign(s, dto, { updatedBy: user.userId });
+    const saved = await this.subs.save(s);
+    await this.events.save(this.events.create({
+      organizationId: user.organizationId,
+      subscriptionId: s.id,
+      eventType: dto.status ? `status:${dto.status}` : 'updated',
+      payload: dto,
+      actorId: user.userId,
+    }));
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'update_subscription', entity: 'Subscription', entityId: s.id,
+      before, after: saved, ip,
+    });
+    return saved;
+  }
+
+  /** Move the subscription forward one cycle. Called after invoice marked paid. */
+  async rollForward(subscriptionId: string, actorId?: string) {
+    const s = await this.subs.findOne({ where: { id: subscriptionId } });
+    if (!s) return null;
+    if (!s.autoRenew || s.status === SubscriptionStatus.CANCELLED) return s;
+
+    const newStart = s.nextRenewalDate;
+    const newEnd = periodEnd(newStart, s.billingCycle);
+    const newRenewal = nextRenewal(newStart, s.billingCycle);
+
+    s.currentPeriodStart = newStart;
+    s.currentPeriodEnd = newEnd;
+    s.nextRenewalDate = newRenewal;
+    s.updatedBy = actorId ?? s.updatedBy;
+    const saved = await this.subs.save(s);
+
+    await this.events.save(this.events.create({
+      organizationId: s.organizationId,
+      subscriptionId: s.id,
+      eventType: 'roll_forward',
+      payload: { newStart, newEnd, newRenewal },
+      actorId: actorId ?? null,
+    }));
+
+    return saved;
+  }
+
+  async preview(orgId: string, id: string): Promise<InvoicePreview> {
+    const s = await this.subs.findOne({
+      where: { id, organizationId: orgId },
+      relations: { client: true, plan: true },
+    });
+    if (!s) throw new NotFoundException();
+    const tier = await this.tiers.findOne({
+      where: { id: s.pricingTierId, organizationId: orgId },
+    });
+    if (!tier) throw new NotFoundException('Pricing tier missing');
+    const org = await this.orgs.findOne({ where: { id: orgId } });
+    if (!org) throw new NotFoundException('Organization missing');
+    return this.pricing.preview(
+      s,
+      tier,
+      org,
+      s.client!,
+      s.billingCycle,
+      s.currentPeriodStart,
+      s.currentPeriodEnd,
+    );
+  }
+
+  /** Used by scheduler. */
+  async findDueForBilling(orgId: string | null, asOf: string) {
+    const where: any = {
+      status: SubscriptionStatus.ACTIVE,
+      autoRenew: true,
+      nextRenewalDate: LessThanOrEqual(asOf),
+    };
+    if (orgId) where.organizationId = orgId;
+    return this.subs.find({ where, relations: { client: true, plan: true, pricingTier: true } });
+  }
+
+  /** Subscriptions whose renewal is within `leadDays` of today (for reminders). */
+  async findUpcomingRenewals(orgId: string | null, dueByOrEarlier: string) {
+    const where: any = {
+      status: SubscriptionStatus.ACTIVE,
+      autoRenew: true,
+      nextRenewalDate: LessThanOrEqual(dueByOrEarlier),
+    };
+    if (orgId) where.organizationId = orgId;
+    return this.subs.find({ where, relations: { client: true, plan: true, pricingTier: true } });
+  }
+}

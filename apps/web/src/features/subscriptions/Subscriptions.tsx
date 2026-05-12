@@ -42,6 +42,8 @@ interface EditForm {
   autoRenew: boolean;
   status: SubStatus;
   notes: string;
+  billingCycle: Cycle;
+  nextRenewalDate: string;
 }
 
 function isPerUser(m: Model) {
@@ -94,7 +96,10 @@ export function Subscriptions() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const [form, setForm] = useState<CreateForm>(CREATE_EMPTY);
-  const [edit, setEdit] = useState<EditForm>({ unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '' });
+  const [edit, setEdit] = useState<EditForm>({
+    unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '',
+    billingCycle: 'MONTHLY', nextRenewalDate: '',
+  });
   const [preview, setPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
 
@@ -151,8 +156,19 @@ export function Subscriptions() {
       autoRenew: s.autoRenew,
       status: s.status,
       notes: s.notes ?? '',
+      billingCycle: s.billingCycle,
+      nextRenewalDate: s.nextRenewalDate,
     });
     setEditingId(s.id);
+  }
+
+  function dayOfMonth(d: string): number {
+    return d ? parseInt(d.slice(8, 10), 10) : 0;
+  }
+  function monthDayLabel(d: string): string {
+    if (!d) return '';
+    const dt = new Date(`${d}T00:00:00Z`);
+    return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   }
 
   // Group tiers for select: per-client vs per-user models, easier picking
@@ -341,6 +357,7 @@ export function Subscriptions() {
         open={!!editingId}
         onClose={() => setEditingId(null)}
         title="Edit subscription"
+        maxWidth="max-w-2xl"
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancel</button>
@@ -350,23 +367,48 @@ export function Subscriptions() {
           </>
         }
       >
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Billing schedule</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="Unit / user count">
-            <input className="input" type="number" min={1} value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
-          </Field>
-          <Field label="Reminder lead days">
-            <input className="input" type="number" min={0} value={edit.reminderLeadDays} onChange={(e) => setEdit({ ...edit, reminderLeadDays: +e.target.value })} />
-          </Field>
-          <Field label="Status">
-            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          <Field
+            label="Billing cycle"
+            hint="How often invoices fire. Changing this anchors the period from the renewal date below."
+          >
+            <select className="input" value={edit.billingCycle} onChange={(e) => setEdit({ ...edit, billingCycle: e.target.value as Cycle })}>
+              {CYCLES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+          </Field>
+          <Field
+            label="Next renewal date"
+            hint={
+              edit.billingCycle === 'MONTHLY'
+                ? `Bills on the ${dayOfMonth(edit.nextRenewalDate) || '—'} of every month.`
+                : edit.billingCycle === 'YEARLY'
+                ? `Bills on ${monthDayLabel(edit.nextRenewalDate) || '—'} every year.`
+                : 'Bills on this date, then advances one cycle each renewal.'
+            }
+          >
+            <input className="input" type="date" value={edit.nextRenewalDate} onChange={(e) => setEdit({ ...edit, nextRenewalDate: e.target.value })} />
+          </Field>
+          <Field label="Reminder lead days" hint="Days before renewal the task card is auto-created.">
+            <input className="input" type="number" min={0} value={edit.reminderLeadDays} onChange={(e) => setEdit({ ...edit, reminderLeadDays: +e.target.value })} />
           </Field>
           <Field label="Auto-renew">
             <label className="text-sm flex items-center gap-2 h-10">
               <input type="checkbox" checked={edit.autoRenew} onChange={(e) => setEdit({ ...edit, autoRenew: e.target.checked })} />
               Renew automatically each cycle
             </label>
+          </Field>
+        </div>
+
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3">Subscription</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Unit / user count">
+            <input className="input" type="number" min={1} value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
+          </Field>
+          <Field label="Status">
+            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
+              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </Field>
           <Field label="Notes" className="md:col-span-2">
             <textarea className="input min-h-[80px]" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />

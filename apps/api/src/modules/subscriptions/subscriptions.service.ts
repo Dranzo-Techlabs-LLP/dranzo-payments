@@ -11,7 +11,18 @@ import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
-import { nextRenewal, periodEnd } from '../../common/util/date-util';
+import { addDays, addMonths, nextRenewal, periodEnd } from '../../common/util/date-util';
+import { BillingCycle as BC } from '../../database/entities/subscription.entity';
+
+function addCycle(date: string, cycle: BC, n: number): string {
+  switch (cycle) {
+    case BC.MONTHLY: return addMonths(date, 1 * n);
+    case BC.QUARTERLY: return addMonths(date, 3 * n);
+    case BC.HALFYEARLY: return addMonths(date, 6 * n);
+    case BC.YEARLY: return addMonths(date, 12 * n);
+    case BC.CUSTOM: return addMonths(date, 1 * n);
+  }
+}
 import { PricingEngine, InvoicePreview } from '../pricing/pricing.engine';
 
 @Injectable()
@@ -129,7 +140,19 @@ export class SubscriptionsService {
     if (dto.status === SubscriptionStatus.CANCELLED) {
       s.autoRenew = false;
     }
+
     Object.assign(s, dto, { updatedBy: user.userId });
+
+    // If billing cycle or next renewal date changed, recompute the current
+    // period window so invoice generation lines up with the new anchor.
+    if (dto.nextRenewalDate || dto.billingCycle) {
+      const renewal = s.nextRenewalDate;
+      // The current period ends one day before the next renewal.
+      s.currentPeriodEnd = addDays(renewal, -1);
+      // Anchor current period start by walking one cycle back from renewal.
+      s.currentPeriodStart = addCycle(renewal, s.billingCycle, -1);
+    }
+
     const saved = await this.subs.save(s);
     await this.events.save(this.events.create({
       organizationId: user.organizationId,

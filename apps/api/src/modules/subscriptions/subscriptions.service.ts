@@ -4,8 +4,9 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
 import { SubscriptionEvent } from '../../database/entities/subscription-event.entity';
 import { Client } from '../../database/entities/client.entity';
+import { Product } from '../../database/entities/product.entity';
 import { Plan } from '../../database/entities/plan.entity';
-import { PricingTier } from '../../database/entities/pricing-tier.entity';
+import { PricingTier, PricingModelType } from '../../database/entities/pricing-tier.entity';
 import { Organization } from '../../database/entities/organization.entity';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -31,12 +32,75 @@ export class SubscriptionsService {
     @InjectRepository(Subscription) private readonly subs: Repository<Subscription>,
     @InjectRepository(SubscriptionEvent) private readonly events: Repository<SubscriptionEvent>,
     @InjectRepository(Client) private readonly clients: Repository<Client>,
+    @InjectRepository(Product) private readonly products: Repository<Product>,
     @InjectRepository(Plan) private readonly plans: Repository<Plan>,
     @InjectRepository(PricingTier) private readonly tiers: Repository<PricingTier>,
     @InjectRepository(Organization) private readonly orgs: Repository<Organization>,
     private readonly audit: AuditService,
     private readonly pricing: PricingEngine,
   ) {}
+
+  /** Ensure a hidden Default product + plan exist, used as parent for inline subscription rates. */
+  private async ensureDefaultPlan(orgId: string, actorId?: string | null): Promise<Plan> {
+    let product = await this.products.findOne({
+      where: { organizationId: orgId, name: '__inline_rates__' },
+      withDeleted: true,
+    });
+    if (!product || product.deletedAt) {
+      product = await this.products.save(this.products.create({
+        organizationId: orgId,
+        name: '__inline_rates__',
+        category: 'system',
+        description: 'Auto-managed container for subscription rates. Do not edit.',
+        isActive: true,
+        createdBy: actorId ?? null,
+        updatedBy: actorId ?? null,
+      }));
+    }
+    let plan = await this.plans.findOne({
+      where: { organizationId: orgId, productId: product.id, name: '__inline_rates__' },
+      withDeleted: true,
+    });
+    if (!plan || plan.deletedAt) {
+      plan = await this.plans.save(this.plans.create({
+        organizationId: orgId,
+        productId: product.id,
+        name: '__inline_rates__',
+        isActive: true,
+        createdBy: actorId ?? null,
+        updatedBy: actorId ?? null,
+      }));
+    }
+    return plan;
+  }
+
+  private async createInlineTier(
+    orgId: string,
+    rate: {
+      modelType: PricingModelType;
+      currency: string;
+      baseAmount: number;
+      perUnitAmount: number;
+      taxRate: number;
+      label: string;
+    },
+    actorId?: string | null,
+  ): Promise<PricingTier> {
+    const plan = await this.ensureDefaultPlan(orgId, actorId);
+    return this.tiers.save(this.tiers.create({
+      organizationId: orgId,
+      planId: plan.id,
+      name: rate.label,
+      modelType: rate.modelType,
+      currency: rate.currency,
+      baseAmount: rate.baseAmount,
+      perUnitAmount: rate.perUnitAmount,
+      taxRate: rate.taxRate.toFixed(2),
+      isActive: true,
+      createdBy: actorId ?? null,
+      updatedBy: actorId ?? null,
+    }));
+  }
 
   async list(orgId: string) {
     const rows = await this.subs.find({
@@ -92,14 +156,20 @@ export class SubscriptionsService {
       where: { id: dto.clientId, organizationId: user.organizationId },
     });
     if (!client) throw new NotFoundException('Client not found');
-    const plan = await this.plans.findOne({
-      where: { id: dto.planId, organizationId: user.organizationId },
-    });
-    if (!plan) throw new NotFoundException('Plan not found');
-    const tier = await this.tiers.findOne({
-      where: { id: dto.pricingTierId, organizationId: user.organizationId },
-    });
-    if (!tier) throw new NotFoundException('PricingTier not found');
+
+    const currency = (dto.currency ?? client.currency ?? 'INR').toUpperCase();
+    const tier = await this.createInlineTier(
+      user.organizationId,
+      {
+        modelType: dto.modelType,
+        currency,
+        baseAmount: dto.baseAmount ?? 0,
+        perUnitAmount: dto.perUnitAmount ?? 0,
+        taxRate: dto.taxRate ?? 0,
+        label: dto.rateLabel?.trim() || `${client.displayName} — ${dto.modelType}`,
+      },
+      user.userId,
+    );
 
     const start = dto.startDate;
     const renewal = nextRenewal(start, dto.billingCycle);
@@ -108,7 +178,7 @@ export class SubscriptionsService {
     const sub = this.subs.create({
       organizationId: user.organizationId,
       clientId: client.id,
-      planId: plan.id,
+      planId: tier.planId,
       pricingTierId: tier.id,
       billingCycle: dto.billingCycle,
       startDate: start,
@@ -116,8 +186,8 @@ export class SubscriptionsService {
       currentPeriodEnd: end,
       nextRenewalDate: renewal,
       unitCount: dto.unitCount ?? 1,
-      customRateOverride: dto.customRateOverride ?? null,
-      currency: tier.currency,
+      customRateOverride: null,
+      currency,
       reminderLeadDays: dto.reminderLeadDays ?? 7,
       autoRenew: dto.autoRenew ?? true,
       status: SubscriptionStatus.ACTIVE,
@@ -131,14 +201,14 @@ export class SubscriptionsService {
       organizationId: user.organizationId,
       subscriptionId: saved.id,
       eventType: 'created',
-      payload: { startDate: start, billingCycle: dto.billingCycle, unitCount: saved.unitCount },
+      payload: { startDate: start, billingCycle: dto.billingCycle, unitCount: saved.unitCount, rate: { modelType: dto.modelType, baseAmount: dto.baseAmount, perUnitAmount: dto.perUnitAmount, taxRate: dto.taxRate } },
       actorId: user.userId,
     }));
 
     await this.audit.record({
       organizationId: user.organizationId, actorId: user.userId,
       action: 'create_subscription', entity: 'Subscription', entityId: saved.id,
-      after: { clientId: client.id, planId: plan.id, tier: tier.modelType, nextRenewal: renewal },
+      after: { clientId: client.id, tier: tier.modelType, nextRenewal: renewal },
       ip,
     });
 
@@ -162,16 +232,33 @@ export class SubscriptionsService {
     if (dto.notes !== undefined) s.notes = dto.notes;
     if (dto.billingCycle !== undefined) s.billingCycle = dto.billingCycle;
     if (dto.nextRenewalDate !== undefined) s.nextRenewalDate = dto.nextRenewalDate;
-    if (dto.pricingTierId !== undefined) {
+    // Inline rate edit: mutate the linked hidden tier.
+    const rateChanged =
+      dto.modelType !== undefined ||
+      dto.baseAmount !== undefined ||
+      dto.perUnitAmount !== undefined ||
+      dto.taxRate !== undefined ||
+      dto.currency !== undefined ||
+      dto.rateLabel !== undefined;
+    if (rateChanged) {
       const tier = await this.tiers.findOne({
-        where: { id: dto.pricingTierId, organizationId: user.organizationId },
+        where: { id: s.pricingTierId, organizationId: user.organizationId },
+        withDeleted: true,
       });
-      if (!tier) throw new NotFoundException('Pricing tier not found');
-      s.pricingTierId = tier.id;
-      s.planId = tier.planId;
-      s.currency = tier.currency;
+      if (tier) {
+        if (dto.modelType !== undefined) tier.modelType = dto.modelType;
+        if (dto.baseAmount !== undefined) tier.baseAmount = dto.baseAmount;
+        if (dto.perUnitAmount !== undefined) tier.perUnitAmount = dto.perUnitAmount;
+        if (dto.taxRate !== undefined) tier.taxRate = dto.taxRate.toFixed(2);
+        if (dto.currency !== undefined) tier.currency = dto.currency.toUpperCase();
+        if (dto.rateLabel !== undefined) tier.name = dto.rateLabel;
+        tier.deletedAt = null;
+        tier.updatedBy = user.userId;
+        await this.tiers.save(tier);
+        if (dto.currency !== undefined) s.currency = dto.currency.toUpperCase();
+      }
     }
-    if (dto.planId !== undefined) s.planId = dto.planId;
+
     // customRateOverride: explicit handling — null clears, undefined leaves alone
     if ('customRateOverride' in dto) {
       s.customRateOverride = (dto.customRateOverride as number | null | undefined) ?? null;

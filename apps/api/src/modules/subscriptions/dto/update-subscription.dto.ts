@@ -4,21 +4,21 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Min,
 } from 'class-validator';
 import {
   BillingCycle,
   SubscriptionStatus,
 } from '../../../database/entities/subscription.entity';
+import { PricingModelType } from '../../../database/entities/pricing-tier.entity';
 
 export class UpdateSubscriptionDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) unitCount?: number;
-  @ApiPropertyOptional({ description: 'null to clear; integer paise to set.' })
-  @IsOptional()
-  customRateOverride?: number | null;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) reminderLeadDays?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() autoRenew?: boolean;
   @ApiPropertyOptional({ enum: SubscriptionStatus })
@@ -32,21 +32,24 @@ export class UpdateSubscriptionDto {
   @IsEnum(BillingCycle)
   billingCycle?: BillingCycle;
 
-  @ApiPropertyOptional({
-    description: 'Override the next renewal date (anchors the cycle going forward).',
-    example: '2026-06-15',
-  })
+  @ApiPropertyOptional({ example: '2026-06-15' })
   @IsOptional()
   @IsDateString()
   nextRenewalDate?: string;
 
-  @ApiPropertyOptional({ description: 'Switch the subscription to a different pricing tier.' })
+  @ApiPropertyOptional({ description: 'null to clear; integer paise to set.' })
   @IsOptional()
-  @IsUUID()
-  pricingTierId?: string;
+  customRateOverride?: number | null;
 
-  @ApiPropertyOptional({ description: 'Switch the subscription to a different plan.' })
+  // Inline rate edits (mutate the hidden tier).
+  @ApiPropertyOptional({ enum: PricingModelType })
   @IsOptional()
-  @IsUUID()
-  planId?: string;
+  @IsEnum(PricingModelType)
+  modelType?: PricingModelType;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) baseAmount?: number;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) perUnitAmount?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() taxRate?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Length(3, 3) currency?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 255) rateLabel?: string;
 }

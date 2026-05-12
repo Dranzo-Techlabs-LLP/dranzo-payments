@@ -10,7 +10,6 @@ import { Team } from '@/features/team/Team';
 import { Audit } from '@/features/audit/Audit';
 import { Clients } from '@/features/clients/Clients';
 import { ClientDetail } from '@/features/clients/ClientDetail';
-import { Catalog } from '@/features/catalog/Catalog';
 import { Subscriptions } from '@/features/subscriptions/Subscriptions';
 import { TaskBoard } from '@/features/tasks/TaskBoard';
 import { Invoices } from '@/features/invoices/Invoices';
@@ -35,7 +34,6 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/clients/:id" element={<ClientDetail />} />
-        <Route path="/catalog" element={<Catalog />} />
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/invoices" element={<Invoices />} />

@@ -48,9 +48,8 @@ export function Dashboard() {
         <div className="card-body">
           <h2 className="font-medium mb-2">Quick start</h2>
           <ol className="list-decimal pl-6 text-sm text-slate-700 space-y-1">
-            <li><Link className="text-brand-600 underline" to="/clients">Add a client</Link>, then add its POC contact.</li>
-            <li><Link className="text-brand-600 underline" to="/catalog">Define products → plans → pricing tiers</Link>.</li>
-            <li><Link className="text-brand-600 underline" to="/subscriptions">Create a subscription</Link> for the client.</li>
+            <li><Link className="text-brand-600 underline" to="/clients">Add a client</Link> with its POC contact.</li>
+            <li><Link className="text-brand-600 underline" to="/subscriptions">Create a subscription</Link> — pick rate model (flat or per-user), monthly/yearly cycle, and renewal date.</li>
             <li><Link className="text-brand-600 underline" to="/tasks">Run the scheduler</Link> — task cards appear automatically.</li>
             <li>Generate an invoice on the Subscriptions page, then mark it paid in <Link className="text-brand-600 underline" to="/invoices">Invoices</Link>.</li>
             <li><Link className="text-brand-600 underline" to="/compliance">Add a compliance item</Link> — same auto-task flow.</li>

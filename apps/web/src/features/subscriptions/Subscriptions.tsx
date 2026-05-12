@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { fmtMoney } from '@/shared/lib/money';
 import { fmtDate } from '@/shared/lib/format-date';
-import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 import { Field } from '@/shared/ui/Field';
@@ -14,56 +13,64 @@ const CYCLES: Cycle[] = ['MONTHLY', 'QUARTERLY', 'HALFYEARLY', 'YEARLY'];
 type SubStatus = 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED';
 const STATUSES: SubStatus[] = ['TRIAL', 'ACTIVE', 'PAUSED', 'CANCELLED'];
 
-type Model = 'FLAT_MONTH' | 'FLAT_YEAR' | 'PER_USER_MONTH' | 'PER_USER_YEAR' | 'TIERED_PER_USER' | 'VOLUME_STEP' | 'ONE_TIME';
-
-interface TierOption {
-  id: string;
-  planId: string;
-  label: string;
-  modelType: Model;
-  productName: string;
-  planName: string;
-}
+type Model =
+  | 'FLAT_MONTH'
+  | 'FLAT_YEAR'
+  | 'PER_USER_MONTH'
+  | 'PER_USER_YEAR'
+  | 'ONE_TIME';
+const MODELS: { value: Model; label: string; hint: string; perUser: boolean }[] = [
+  { value: 'FLAT_MONTH', label: 'Flat per client / month', hint: 'Fixed monthly fee regardless of user count.', perUser: false },
+  { value: 'FLAT_YEAR', label: 'Flat per client / year', hint: 'Fixed yearly fee regardless of user count.', perUser: false },
+  { value: 'PER_USER_MONTH', label: 'Per user / month', hint: 'Rate × user count, billed monthly.', perUser: true },
+  { value: 'PER_USER_YEAR', label: 'Per user / year', hint: 'Rate × user count, billed yearly.', perUser: true },
+  { value: 'ONE_TIME', label: 'One-time fee', hint: 'Non-recurring; charged once.', perUser: false },
+];
 
 interface CreateForm {
   clientId: string;
-  pricingTierId: string;
   billingCycle: Cycle;
   startDate: string;
+  modelType: Model;
+  rateRupees: string; // base or per-unit, depending on model
+  taxRate: number;
   unitCount: number;
   reminderLeadDays: number;
   autoRenew: boolean;
   notes: string;
-  customRateRupees: string; // blank = use catalog tier rate
+  rateLabel: string;
 }
 
-interface EditForm {
-  unitCount: number;
-  reminderLeadDays: number;
-  autoRenew: boolean;
+interface EditForm extends CreateForm {
   status: SubStatus;
-  notes: string;
-  billingCycle: Cycle;
   nextRenewalDate: string;
   customRateRupees: string;
-  pricingTierId: string;
-}
-
-function isPerUser(m: Model) {
-  return m === 'PER_USER_MONTH' || m === 'PER_USER_YEAR' || m === 'TIERED_PER_USER' || m === 'VOLUME_STEP';
 }
 
 const CREATE_EMPTY: CreateForm = {
   clientId: '',
-  pricingTierId: '',
   billingCycle: 'MONTHLY',
   startDate: new Date().toISOString().slice(0, 10),
+  modelType: 'PER_USER_MONTH',
+  rateRupees: '500',
+  taxRate: 18,
   unitCount: 1,
   reminderLeadDays: 7,
   autoRenew: true,
   notes: '',
+  rateLabel: '',
+};
+
+const EDIT_EMPTY: EditForm = {
+  ...CREATE_EMPTY,
+  status: 'ACTIVE',
+  nextRenewalDate: '',
   customRateRupees: '',
 };
+
+function modelDef(m: Model) {
+  return MODELS.find((x) => x.value === m)!;
+}
 
 export function Subscriptions() {
   const qc = useQueryClient();
@@ -75,69 +82,53 @@ export function Subscriptions() {
     queryKey: ['clients'],
     queryFn: async () => (await api.get('/clients')).data,
   });
-  const products = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => (await api.get('/catalog/products')).data,
-  });
-
-  const tiers: TierOption[] = useMemo(() => {
-    const result: TierOption[] = [];
-    for (const p of products.data ?? []) for (const pl of p.plans ?? []) for (const t of pl.tiers ?? []) {
-      result.push({
-        id: t.id,
-        planId: pl.id,
-        label: `${p.name} / ${pl.name} / ${t.name}`,
-        modelType: t.modelType,
-        productName: p.name,
-        planName: pl.name,
-      });
-    }
-    return result;
-  }, [products.data]);
 
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const [form, setForm] = useState<CreateForm>(CREATE_EMPTY);
-  const [edit, setEdit] = useState<EditForm>({
-    unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '',
-    billingCycle: 'MONTHLY', nextRenewalDate: '', customRateRupees: '', pricingTierId: '',
-  });
+  const [edit, setEdit] = useState<EditForm>(EDIT_EMPTY);
+
   const [preview, setPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
 
-  const selectedTier = tiers.find((t) => t.id === form.pricingTierId);
-
-  // Live preview when key inputs change
+  // Live preview during create — compute locally to avoid round trips.
   useEffect(() => {
-    if (!creating || !form.pricingTierId) {
+    if (!creating) {
       setPreview(null);
       return;
     }
-    const ctl = new AbortController();
-    setPreviewBusy(true);
-    const override = form.customRateRupees.trim() === '' ? undefined : Math.round(parseFloat(form.customRateRupees) * 100);
-    api.post('/pricing/preview', {
-      pricingTierId: form.pricingTierId,
-      clientId: form.clientId || undefined,
-      unitCount: form.unitCount,
-      billingCycle: form.billingCycle,
-      customRateOverride: override,
-    }, { signal: ctl.signal })
-      .then((r) => setPreview({ subtotal: r.data.subtotal, tax: r.data.tax, total: r.data.total, currency: r.data.currency }))
-      .catch(() => setPreview(null))
-      .finally(() => setPreviewBusy(false));
-    return () => ctl.abort();
-  }, [creating, form.pricingTierId, form.unitCount, form.clientId, form.billingCycle, form.customRateRupees]);
+    const def = modelDef(form.modelType);
+    const rate = parseFloat(form.rateRupees) || 0;
+    const ratePaise = Math.round(rate * 100);
+    const subtotal = def.perUser ? Math.max(1, form.unitCount) * ratePaise : ratePaise;
+    const tax = Math.round((subtotal * (form.taxRate || 0)) / 100);
+    setPreview({ subtotal, tax, total: subtotal + tax, currency: 'INR' });
+  }, [creating, form.modelType, form.rateRupees, form.taxRate, form.unitCount]);
 
   const create = useMutation({
     mutationFn: async () => {
-      const tier = tiers.find((t) => t.id === form.pricingTierId);
-      const { customRateRupees, ...rest } = form;
-      const body: any = { ...rest, planId: tier?.planId };
-      if (customRateRupees.trim() !== '') {
-        body.customRateOverride = Math.round(parseFloat(customRateRupees) * 100);
+      const def = modelDef(form.modelType);
+      const ratePaise = Math.round((parseFloat(form.rateRupees) || 0) * 100);
+      const body: any = {
+        clientId: form.clientId,
+        billingCycle: form.billingCycle,
+        startDate: form.startDate,
+        modelType: form.modelType,
+        taxRate: form.taxRate,
+        unitCount: form.unitCount,
+        reminderLeadDays: form.reminderLeadDays,
+        autoRenew: form.autoRenew,
+        notes: form.notes || undefined,
+        rateLabel: form.rateLabel || undefined,
+      };
+      if (def.perUser) {
+        body.perUnitAmount = ratePaise;
+        body.baseAmount = 0;
+      } else {
+        body.baseAmount = ratePaise;
+        body.perUnitAmount = 0;
       }
       return (await api.post('/subscriptions', body)).data;
     },
@@ -147,13 +138,29 @@ export function Subscriptions() {
   const update = useMutation({
     mutationFn: async () => {
       if (!editingId) return null;
-      const { customRateRupees, ...rest } = edit;
-      const body: any = { ...rest };
-      if (customRateRupees.trim() === '') {
-        body.customRateOverride = null;
+      const def = modelDef(edit.modelType);
+      const ratePaise = Math.round((parseFloat(edit.rateRupees) || 0) * 100);
+      const body: any = {
+        unitCount: edit.unitCount,
+        reminderLeadDays: edit.reminderLeadDays,
+        autoRenew: edit.autoRenew,
+        status: edit.status,
+        notes: edit.notes,
+        billingCycle: edit.billingCycle,
+        nextRenewalDate: edit.nextRenewalDate,
+        modelType: edit.modelType,
+        taxRate: edit.taxRate,
+        rateLabel: edit.rateLabel || undefined,
+      };
+      if (def.perUser) {
+        body.perUnitAmount = ratePaise;
+        body.baseAmount = 0;
       } else {
-        body.customRateOverride = Math.round(parseFloat(customRateRupees) * 100);
+        body.baseAmount = ratePaise;
+        body.perUnitAmount = 0;
       }
+      if (edit.customRateRupees.trim() === '') body.customRateOverride = null;
+      else body.customRateOverride = Math.round(parseFloat(edit.customRateRupees) * 100);
       return (await api.patch(`/subscriptions/${editingId}`, body)).data;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setEditingId(null); },
@@ -171,16 +178,25 @@ export function Subscriptions() {
   });
 
   function openEdit(s: any) {
+    const tier = s.pricingTier;
+    const model = (tier?.modelType ?? 'PER_USER_MONTH') as Model;
+    const def = modelDef(model);
+    const rateMinor = def.perUser ? Number(tier?.perUnitAmount ?? 0) : Number(tier?.baseAmount ?? 0);
     setEdit({
+      clientId: s.clientId,
+      billingCycle: s.billingCycle,
+      startDate: s.startDate,
+      modelType: model,
+      rateRupees: String(rateMinor / 100),
+      taxRate: parseFloat(tier?.taxRate ?? '0'),
       unitCount: s.unitCount,
       reminderLeadDays: s.reminderLeadDays,
       autoRenew: s.autoRenew,
-      status: s.status,
       notes: s.notes ?? '',
-      billingCycle: s.billingCycle,
+      rateLabel: tier?.name && !tier.name.startsWith('__') ? tier.name : '',
+      status: s.status,
       nextRenewalDate: s.nextRenewalDate,
       customRateRupees: s.customRateOverride != null ? String(Number(s.customRateOverride) / 100) : '',
-      pricingTierId: s.pricingTierId,
     });
     setEditingId(s.id);
   }
@@ -194,20 +210,12 @@ export function Subscriptions() {
     return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   }
 
-  // Group tiers for select: per-client vs per-user models, easier picking
-  const tierGroups = useMemo(() => {
-    return {
-      perClient: tiers.filter((t) => !isPerUser(t.modelType)),
-      perUser: tiers.filter((t) => isPerUser(t.modelType)),
-    };
-  }, [tiers]);
-
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Subscriptions</h1>
-          <p className="text-slate-500">Per-client (flat) or per-user, billed monthly/quarterly/yearly.</p>
+          <p className="text-slate-500">Per-client (flat) or per-user, billed monthly/quarterly/yearly. Rate is set on each subscription.</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setForm(CREATE_EMPTY); setCreating(true); }}>+ New subscription</button>
       </div>
@@ -219,35 +227,43 @@ export function Subscriptions() {
           ) : (
             <table className="table">
               <thead>
-                <tr><th>Client</th><th>Plan</th><th>Rate model</th><th>Cycle</th><th>Units</th><th>Fee / cycle</th><th>Renewal</th><th>Status</th><th></th></tr>
+                <tr><th>Client</th><th>Rate model</th><th>Rate</th><th>Cycle</th><th>Units</th><th>Fee / cycle</th><th>Renewal</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
-                {subs.data?.map((s: any) => (
-                  <tr key={s.id}>
-                    <td>{s.client?.displayName}</td>
-                    <td>{s.plan?.name}</td>
-                    <td><span className="badge bg-slate-100">{s.pricingTier?.modelType}</span></td>
-                    <td>{s.billingCycle}</td>
-                    <td>{s.unitCount}</td>
-                    <td className="font-medium">
-                      {s.feePreview ? fmtMoney(s.feePreview.total, s.feePreview.currency) : '—'}
-                      {s.feePreview && s.feePreview.tax > 0 && (
-                        <div className="text-[10px] text-slate-500">
-                          {fmtMoney(s.feePreview.subtotal, s.feePreview.currency)} + {fmtMoney(s.feePreview.tax, s.feePreview.currency)} tax
+                {subs.data?.map((s: any) => {
+                  const t = s.pricingTier;
+                  const def = t ? MODELS.find((m) => m.value === t.modelType) : null;
+                  const rateMinor = def?.perUser ? Number(t?.perUnitAmount ?? 0) : Number(t?.baseAmount ?? 0);
+                  return (
+                    <tr key={s.id}>
+                      <td>{s.client?.displayName}</td>
+                      <td><span className="badge bg-slate-100">{t?.modelType ?? '—'}</span></td>
+                      <td className="text-xs">
+                        {t ? fmtMoney(rateMinor, t.currency) : '—'}
+                        {def?.perUser && <span className="text-slate-400"> /user</span>}
+                      </td>
+                      <td>{s.billingCycle}</td>
+                      <td>{s.unitCount}</td>
+                      <td className="font-medium">
+                        {s.feePreview ? fmtMoney(s.feePreview.total, s.feePreview.currency) : '—'}
+                        {s.feePreview && s.feePreview.tax > 0 && (
+                          <div className="text-[10px] text-slate-500">
+                            {fmtMoney(s.feePreview.subtotal, s.feePreview.currency)} + {fmtMoney(s.feePreview.tax, s.feePreview.currency)} tax
+                          </div>
+                        )}
+                      </td>
+                      <td>{fmtDate(s.nextRenewalDate)}</td>
+                      <td><span className="badge bg-slate-100">{s.status}</span></td>
+                      <td>
+                        <div className="flex gap-2 justify-end">
+                          <button className="btn btn-secondary py-1 text-xs" onClick={() => generateInvoice.mutate(s.id)} disabled={generateInvoice.isPending}>Invoice</button>
+                          <button className="btn btn-secondary py-1 text-xs" onClick={() => openEdit(s)}>Edit</button>
+                          <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirmId(s.id)}>Delete</button>
                         </div>
-                      )}
-                    </td>
-                    <td>{fmtDate(s.nextRenewalDate)}</td>
-                    <td><span className="badge bg-slate-100">{s.status}</span></td>
-                    <td>
-                      <div className="flex gap-2 justify-end">
-                        <button className="btn btn-secondary py-1 text-xs" onClick={() => generateInvoice.mutate(s.id)} disabled={generateInvoice.isPending}>Invoice</button>
-                        <button className="btn btn-secondary py-1 text-xs" onClick={() => openEdit(s)}>Edit</button>
-                        <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirmId(s.id)}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {!subs.data?.length && (
                   <tr><td colSpan={9} className="text-center text-slate-500 py-4">No subscriptions.</td></tr>
                 )}
@@ -262,6 +278,7 @@ export function Subscriptions() {
         </div>
       </div>
 
+      {/* Create */}
       <Modal
         open={creating}
         onClose={() => setCreating(false)}
@@ -270,137 +287,98 @@ export function Subscriptions() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
-            <button className="btn btn-primary" disabled={!form.clientId || !form.pricingTierId || create.isPending} onClick={() => create.mutate()}>
+            <button className="btn btn-primary" disabled={!form.clientId || !form.rateRupees || create.isPending} onClick={() => create.mutate()}>
               {create.isPending ? 'Creating…' : 'Create subscription'}
             </button>
           </>
         }
       >
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Client</h3>
+        <Field label="Client" required>
+          <select className="input" value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+            <option value="">— select client —</option>
+            {clients.data?.map((c: any) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+          </select>
+        </Field>
+
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Rate</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="Client" required className="md:col-span-2">
-            <select className="input" value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
-              <option value="">— select client —</option>
-              {clients.data?.map((c: any) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+          <Field label="Rate model" required hint={modelDef(form.modelType).hint}>
+            <select className="input" value={form.modelType} onChange={(e) => setForm({ ...form, modelType: e.target.value as Model })}>
+              {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </Field>
-
           <Field
-            label="Pricing tier"
+            label={modelDef(form.modelType).perUser ? 'Rate per user (₹)' : 'Rate (₹)'}
             required
-            hint="Rates live in Catalog → Product → Plan → Tier."
-            className="md:col-span-2"
+            hint={modelDef(form.modelType).perUser ? 'Per user per cycle.' : 'Per cycle.'}
           >
-            <select className="input" value={form.pricingTierId} onChange={(e) => setForm({ ...form, pricingTierId: e.target.value })}>
-              <option value="">— select pricing tier —</option>
-              {tierGroups.perClient.length > 0 && (
-                <optgroup label="Per-client (flat fee)">
-                  {tierGroups.perClient.map((t) => (
-                    <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
-                  ))}
-                </optgroup>
-              )}
-              {tierGroups.perUser.length > 0 && (
-                <optgroup label="Per-user / volume">
-                  {tierGroups.perUser.map((t) => (
-                    <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            {tiers.length === 0 ? (
-              <p className="text-xs text-amber-700 mt-1">
-                No pricing tiers defined. <Link to="/catalog" className="underline">Create one in Catalog</Link> first.
-              </p>
-            ) : (
-              <p className="text-[11px] text-slate-500 mt-1">
-                Need a new rate? <Link to="/catalog" className="text-brand-600 underline">Open Catalog</Link>.
-              </p>
-            )}
+            <input className="input" type="number" min={0} step={0.01} value={form.rateRupees} onChange={(e) => setForm({ ...form, rateRupees: e.target.value })} />
           </Field>
+          <Field label="Tax rate (%)" hint="0 if client is unregistered or you want to skip tax.">
+            <input className="input" type="number" min={0} step={0.5} value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: +e.target.value })} />
+          </Field>
+          <Field label="Rate label" hint="Free-form name shown on invoices (defaults to client + model).">
+            <input className="input" value={form.rateLabel} onChange={(e) => setForm({ ...form, rateLabel: e.target.value })} />
+          </Field>
+        </div>
 
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Billing schedule</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="Billing cycle" required>
             <select className="input" value={form.billingCycle} onChange={(e) => setForm({ ...form, billingCycle: e.target.value as Cycle })}>
               {CYCLES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
-
           <Field label="Start date" required>
             <input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
           </Field>
-
           <Field
-            label={selectedTier && isPerUser(selectedTier.modelType) ? 'User count' : 'Unit count'}
-            hint={selectedTier && !isPerUser(selectedTier.modelType) ? 'Ignored for flat per-client tiers.' : undefined}
+            label={modelDef(form.modelType).perUser ? 'User count' : 'Unit count'}
+            hint={modelDef(form.modelType).perUser ? 'Number of paid users on the subscription.' : 'Used by the pricing engine but ignored for flat / one-time rates.'}
           >
             <input className="input" type="number" min={1} value={form.unitCount} onChange={(e) => setForm({ ...form, unitCount: +e.target.value })} />
           </Field>
-
-          <Field label="Reminder lead time (days before renewal)">
+          <Field label="Reminder lead days" hint="Days before renewal the task card is auto-created.">
             <input className="input" type="number" min={0} value={form.reminderLeadDays} onChange={(e) => setForm({ ...form, reminderLeadDays: +e.target.value })} />
           </Field>
-
-          <Field
-            label="Custom rate override (₹)"
-            hint={
-              selectedTier && isPerUser(selectedTier.modelType)
-                ? 'Override per-user rate (per cycle) for this client only. Leave blank to use the catalog rate.'
-                : 'Override total flat fee (per cycle) for this client only. Leave blank to use the catalog rate.'
-            }
-            className="md:col-span-2"
-          >
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step={0.01}
-              placeholder="leave blank to use catalog rate"
-              value={form.customRateRupees}
-              onChange={(e) => setForm({ ...form, customRateRupees: e.target.value })}
-            />
-          </Field>
-
-          <Field label="Notes" className="md:col-span-2">
-            <textarea className="input min-h-[60px]" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-          </Field>
-
           <label className="text-sm flex items-center gap-2 md:col-span-2">
             <input type="checkbox" checked={form.autoRenew} onChange={(e) => setForm({ ...form, autoRenew: e.target.checked })} />
             Auto-renew at each cycle end
           </label>
         </div>
 
-        {selectedTier && (
-          <div className="mt-4 p-3 rounded-md bg-slate-50 border border-slate-200">
-            <div className="text-xs text-slate-600 mb-2 font-medium">Charge preview</div>
-            {previewBusy ? (
-              <div className="text-sm text-slate-500">Calculating…</div>
-            ) : preview ? (
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <div className="text-[11px] text-slate-500">Subtotal</div>
-                  <div>{fmtMoney(preview.subtotal, preview.currency)}</div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-500">Tax</div>
-                  <div>{fmtMoney(preview.tax, preview.currency)}</div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-500">Total / cycle</div>
-                  <div className="font-semibold">{fmtMoney(preview.total, preview.currency)}</div>
-                </div>
+        <Field label="Notes">
+          <textarea className="input min-h-[60px]" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </Field>
+
+        {preview && (
+          <div className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200">
+            <div className="text-xs text-slate-600 mb-2 font-medium">Charge preview / cycle</div>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <div className="text-[11px] text-slate-500">Subtotal</div>
+                <div>{fmtMoney(preview.subtotal, preview.currency)}</div>
               </div>
-            ) : (
-              <div className="text-sm text-slate-500">Pick client + tier to preview.</div>
-            )}
+              <div>
+                <div className="text-[11px] text-slate-500">Tax</div>
+                <div>{fmtMoney(preview.tax, preview.currency)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">Total / cycle</div>
+                <div className="font-semibold">{fmtMoney(preview.total, preview.currency)}</div>
+              </div>
+            </div>
           </div>
         )}
       </Modal>
 
+      {/* Edit */}
       <Modal
         open={!!editingId}
         onClose={() => setEditingId(null)}
         title="Edit subscription"
-        maxWidth="max-w-2xl"
+        maxWidth="max-w-3xl"
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancel</button>
@@ -410,41 +388,30 @@ export function Subscriptions() {
           </>
         }
       >
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan & pricing</h3>
-        <Field
-          label="Pricing tier"
-          hint="Switching tiers reassigns the plan. Rates live in Catalog → Product → Plan → Tier."
-        >
-          <select className="input" value={edit.pricingTierId} onChange={(e) => setEdit({ ...edit, pricingTierId: e.target.value })}>
-            {!tiers.find((t) => t.id === edit.pricingTierId) && edit.pricingTierId && (
-              <option value={edit.pricingTierId}>(current tier — deleted from catalog)</option>
-            )}
-            {tierGroups.perClient.length > 0 && (
-              <optgroup label="Per-client (flat fee)">
-                {tierGroups.perClient.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
-                ))}
-              </optgroup>
-            )}
-            {tierGroups.perUser.length > 0 && (
-              <optgroup label="Per-user / volume">
-                {tierGroups.perUser.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Need a new rate? <Link to="/catalog" className="text-brand-600 underline">Open Catalog</Link>.
-          </p>
-        </Field>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rate</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Rate model" hint={modelDef(edit.modelType).hint}>
+            <select className="input" value={edit.modelType} onChange={(e) => setEdit({ ...edit, modelType: e.target.value as Model })}>
+              {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+          <Field label={modelDef(edit.modelType).perUser ? 'Rate per user (₹)' : 'Rate (₹)'}>
+            <input className="input" type="number" min={0} step={0.01} value={edit.rateRupees} onChange={(e) => setEdit({ ...edit, rateRupees: e.target.value })} />
+          </Field>
+          <Field label="Tax rate (%)">
+            <input className="input" type="number" min={0} step={0.5} value={edit.taxRate} onChange={(e) => setEdit({ ...edit, taxRate: +e.target.value })} />
+          </Field>
+          <Field label="Rate label">
+            <input className="input" value={edit.rateLabel} onChange={(e) => setEdit({ ...edit, rateLabel: e.target.value })} />
+          </Field>
+          <Field label="Custom rate override (₹)" hint="Optional; blank uses the rate above." className="md:col-span-2">
+            <input className="input" type="number" min={0} step={0.01} placeholder="leave blank to use rate above" value={edit.customRateRupees} onChange={(e) => setEdit({ ...edit, customRateRupees: e.target.value })} />
+          </Field>
+        </div>
 
         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Billing schedule</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field
-            label="Billing cycle"
-            hint="How often invoices fire. Changing this anchors the period from the renewal date below."
-          >
+          <Field label="Billing cycle" hint="Changing this re-anchors the period from the renewal date.">
             <select className="input" value={edit.billingCycle} onChange={(e) => setEdit({ ...edit, billingCycle: e.target.value as Cycle })}>
               {CYCLES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -461,7 +428,7 @@ export function Subscriptions() {
           >
             <input className="input" type="date" value={edit.nextRenewalDate} onChange={(e) => setEdit({ ...edit, nextRenewalDate: e.target.value })} />
           </Field>
-          <Field label="Reminder lead days" hint="Days before renewal the task card is auto-created.">
+          <Field label="Reminder lead days">
             <input className="input" type="number" min={0} value={edit.reminderLeadDays} onChange={(e) => setEdit({ ...edit, reminderLeadDays: +e.target.value })} />
           </Field>
           <Field label="Auto-renew">
@@ -472,30 +439,15 @@ export function Subscriptions() {
           </Field>
         </div>
 
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3">Subscription</h3>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Subscription</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="Unit / user count">
+          <Field label={modelDef(edit.modelType).perUser ? 'User count' : 'Unit count'}>
             <input className="input" type="number" min={1} value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
           </Field>
           <Field label="Status">
             <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-          </Field>
-          <Field
-            label="Custom rate override (₹)"
-            hint="Per client override. Leave blank to use the catalog tier rate."
-            className="md:col-span-2"
-          >
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step={0.01}
-              placeholder="leave blank to use catalog rate"
-              value={edit.customRateRupees}
-              onChange={(e) => setEdit({ ...edit, customRateRupees: e.target.value })}
-            />
           </Field>
           <Field label="Notes" className="md:col-span-2">
             <textarea className="input min-h-[80px]" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />

@@ -162,6 +162,16 @@ export class SubscriptionsService {
     if (dto.notes !== undefined) s.notes = dto.notes;
     if (dto.billingCycle !== undefined) s.billingCycle = dto.billingCycle;
     if (dto.nextRenewalDate !== undefined) s.nextRenewalDate = dto.nextRenewalDate;
+    if (dto.pricingTierId !== undefined) {
+      const tier = await this.tiers.findOne({
+        where: { id: dto.pricingTierId, organizationId: user.organizationId },
+      });
+      if (!tier) throw new NotFoundException('Pricing tier not found');
+      s.pricingTierId = tier.id;
+      s.planId = tier.planId;
+      s.currency = tier.currency;
+    }
+    if (dto.planId !== undefined) s.planId = dto.planId;
     // customRateOverride: explicit handling — null clears, undefined leaves alone
     if ('customRateOverride' in dto) {
       s.customRateOverride = (dto.customRateOverride as number | null | undefined) ?? null;

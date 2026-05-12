@@ -46,6 +46,7 @@ interface EditForm {
   billingCycle: Cycle;
   nextRenewalDate: string;
   customRateRupees: string;
+  pricingTierId: string;
 }
 
 function isPerUser(m: Model) {
@@ -101,7 +102,7 @@ export function Subscriptions() {
   const [form, setForm] = useState<CreateForm>(CREATE_EMPTY);
   const [edit, setEdit] = useState<EditForm>({
     unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '',
-    billingCycle: 'MONTHLY', nextRenewalDate: '', customRateRupees: '',
+    billingCycle: 'MONTHLY', nextRenewalDate: '', customRateRupees: '', pricingTierId: '',
   });
   const [preview, setPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -179,6 +180,7 @@ export function Subscriptions() {
       billingCycle: s.billingCycle,
       nextRenewalDate: s.nextRenewalDate,
       customRateRupees: s.customRateOverride != null ? String(Number(s.customRateOverride) / 100) : '',
+      pricingTierId: s.pricingTierId,
     });
     setEditingId(s.id);
   }
@@ -408,7 +410,36 @@ export function Subscriptions() {
           </>
         }
       >
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Billing schedule</h3>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan & pricing</h3>
+        <Field
+          label="Pricing tier"
+          hint="Switching tiers reassigns the plan. Rates live in Catalog → Product → Plan → Tier."
+        >
+          <select className="input" value={edit.pricingTierId} onChange={(e) => setEdit({ ...edit, pricingTierId: e.target.value })}>
+            {!tiers.find((t) => t.id === edit.pricingTierId) && edit.pricingTierId && (
+              <option value={edit.pricingTierId}>(current tier — deleted from catalog)</option>
+            )}
+            {tierGroups.perClient.length > 0 && (
+              <optgroup label="Per-client (flat fee)">
+                {tierGroups.perClient.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
+                ))}
+              </optgroup>
+            )}
+            {tierGroups.perUser.length > 0 && (
+              <optgroup label="Per-user / volume">
+                {tierGroups.perUser.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label} — {t.modelType}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <p className="text-[11px] text-slate-500 mt-1">
+            Need a new rate? <Link to="/catalog" className="text-brand-600 underline">Open Catalog</Link>.
+          </p>
+        </Field>
+
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Billing schedule</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field
             label="Billing cycle"

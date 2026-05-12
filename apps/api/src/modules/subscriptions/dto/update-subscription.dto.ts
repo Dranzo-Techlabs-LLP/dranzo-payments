@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 import {
@@ -38,4 +39,14 @@ export class UpdateSubscriptionDto {
   @IsOptional()
   @IsDateString()
   nextRenewalDate?: string;
+
+  @ApiPropertyOptional({ description: 'Switch the subscription to a different pricing tier.' })
+  @IsOptional()
+  @IsUUID()
+  pricingTierId?: string;
+
+  @ApiPropertyOptional({ description: 'Switch the subscription to a different plan.' })
+  @IsOptional()
+  @IsUUID()
+  planId?: string;
 }

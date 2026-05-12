@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Client } from '../../database/entities/client.entity';
-import { Contact } from '../../database/entities/contact.entity';
+import { Contact, ContactRole } from '../../database/entities/contact.entity';
 import { Tag } from '../../database/entities/tag.entity';
 import { UpsertClientDto } from './dto/upsert-client.dto';
 import { UpsertContactDto } from './dto/upsert-contact.dto';
@@ -58,6 +58,22 @@ export class ClientsService {
       updatedBy: user.userId,
     });
     const saved = await this.clients.save(c);
+
+    if (dto.primaryContact?.name) {
+      const pc = this.contacts.create({
+        organizationId: user.organizationId,
+        clientId: saved.id,
+        name: dto.primaryContact.name,
+        role: ContactRole.POC,
+        email: dto.primaryContact.email,
+        phone: dto.primaryContact.phone,
+        isPrimary: true,
+        createdBy: user.userId,
+        updatedBy: user.userId,
+      });
+      await this.contacts.save(pc);
+    }
+
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.userId,
@@ -94,6 +110,34 @@ export class ClientsService {
       });
     }
     const saved = await this.clients.save(c);
+
+    if (dto.primaryContact?.name) {
+      const existing = await this.contacts.findOne({
+        where: { clientId: saved.id, isPrimary: true, organizationId: user.organizationId },
+      });
+      if (existing) {
+        existing.name = dto.primaryContact.name;
+        existing.email = dto.primaryContact.email ?? null;
+        existing.phone = dto.primaryContact.phone ?? null;
+        existing.role = ContactRole.POC;
+        existing.updatedBy = user.userId;
+        await this.contacts.save(existing);
+      } else {
+        const pc = this.contacts.create({
+          organizationId: user.organizationId,
+          clientId: saved.id,
+          name: dto.primaryContact.name,
+          role: ContactRole.POC,
+          email: dto.primaryContact.email,
+          phone: dto.primaryContact.phone,
+          isPrimary: true,
+          createdBy: user.userId,
+          updatedBy: user.userId,
+        });
+        await this.contacts.save(pc);
+      }
+    }
+
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.userId,

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { fmtMoney } from '@/shared/lib/money';
 import { fmtDate } from '@/shared/lib/format-date';
+import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 import { Field } from '@/shared/ui/Field';
@@ -244,7 +245,12 @@ export function Subscriptions() {
             </select>
           </Field>
 
-          <Field label="Pricing tier" required hint="Pick a per-client flat rate or a per-user rate." className="md:col-span-2">
+          <Field
+            label="Pricing tier"
+            required
+            hint="Rates live in Catalog → Product → Plan → Tier."
+            className="md:col-span-2"
+          >
             <select className="input" value={form.pricingTierId} onChange={(e) => setForm({ ...form, pricingTierId: e.target.value })}>
               <option value="">— select pricing tier —</option>
               {tierGroups.perClient.length > 0 && (
@@ -262,6 +268,15 @@ export function Subscriptions() {
                 </optgroup>
               )}
             </select>
+            {tiers.length === 0 ? (
+              <p className="text-xs text-amber-700 mt-1">
+                No pricing tiers defined. <Link to="/catalog" className="underline">Create one in Catalog</Link> first.
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Need a new rate? <Link to="/catalog" className="text-brand-600 underline">Open Catalog</Link>.
+              </p>
+            )}
           </Field>
 
           <Field label="Billing cycle" required>

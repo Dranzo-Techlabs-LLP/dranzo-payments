@@ -1,14 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsEmail,
   IsEnum,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ClientStatus } from '../../../database/entities/client.entity';
+
+export class PrimaryContactDto {
+  @ApiProperty() @IsString() @Length(1, 255) name!: string;
+  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
+}
 
 export class UpsertClientDto {
   @ApiProperty()
@@ -77,4 +86,10 @@ export class UpsertClientDto {
   @IsOptional()
   @IsArray()
   tagIds?: string[];
+
+  @ApiPropertyOptional({ type: PrimaryContactDto, description: 'Convenience: create or update the primary POC contact in the same call.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PrimaryContactDto)
+  primaryContact?: PrimaryContactDto;
 }

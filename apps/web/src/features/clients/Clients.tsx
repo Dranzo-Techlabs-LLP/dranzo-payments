@@ -9,6 +9,15 @@ import { Field } from '@/shared/ui/Field';
 type Status = 'ACTIVE' | 'ON_HOLD' | 'CHURNED';
 const STATUSES: Status[] = ['ACTIVE', 'ON_HOLD', 'CHURNED'];
 
+interface Contact {
+  id: string;
+  name: string;
+  role: string;
+  email?: string | null;
+  phone?: string | null;
+  isPrimary: boolean;
+}
+
 interface ClientRow {
   id: string;
   legalName: string;
@@ -20,7 +29,7 @@ interface ClientRow {
   placeOfSupply?: string;
   status: Status;
   accountManagerId?: string;
-  contacts?: { id: string; name: string; role: string; isPrimary: boolean }[];
+  contacts?: Contact[];
 }
 
 interface Form {
@@ -32,9 +41,16 @@ interface Form {
   taxId: string;
   placeOfSupply: string;
   status: Status;
+  primaryContactName: string;
+  primaryContactEmail: string;
+  primaryContactPhone: string;
 }
 
-const EMPTY: Form = { legalName: '', displayName: '', industry: '', country: 'IN', currency: 'INR', taxId: '', placeOfSupply: '', status: 'ACTIVE' };
+const EMPTY: Form = {
+  legalName: '', displayName: '', industry: '', country: 'IN', currency: 'INR',
+  taxId: '', placeOfSupply: '', status: 'ACTIVE',
+  primaryContactName: '', primaryContactEmail: '', primaryContactPhone: '',
+};
 
 export function Clients() {
   const qc = useQueryClient();
@@ -49,10 +65,20 @@ export function Clients() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const upsert = useMutation({
-    mutationFn: async () =>
-      editing
-        ? (await api.patch(`/clients/${editing}`, form)).data
-        : (await api.post('/clients', form)).data,
+    mutationFn: async () => {
+      const { primaryContactName, primaryContactEmail, primaryContactPhone, ...rest } = form;
+      const body: any = { ...rest };
+      if (primaryContactName.trim()) {
+        body.primaryContact = {
+          name: primaryContactName.trim(),
+          email: primaryContactEmail.trim() || undefined,
+          phone: primaryContactPhone.trim() || undefined,
+        };
+      }
+      return editing
+        ? (await api.patch(`/clients/${editing}`, body)).data
+        : (await api.post('/clients', body)).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients'] });
       setMode('closed');
@@ -75,6 +101,7 @@ export function Clients() {
     setMode('create');
   }
   function openEdit(c: ClientRow) {
+    const primary = c.contacts?.find((x) => x.isPrimary);
     setForm({
       legalName: c.legalName,
       displayName: c.displayName,
@@ -84,6 +111,9 @@ export function Clients() {
       taxId: c.taxId ?? '',
       placeOfSupply: c.placeOfSupply ?? '',
       status: c.status,
+      primaryContactName: primary?.name ?? '',
+      primaryContactEmail: primary?.email ?? '',
+      primaryContactPhone: primary?.phone ?? '',
     });
     setEditing(c.id);
     setMode('edit');
@@ -94,7 +124,7 @@ export function Clients() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Clients</h1>
-          <p className="text-slate-500">Customer companies with POC + tax info.</p>
+          <p className="text-slate-500">Customer companies + POC contact. Add more contacts on the client detail page.</p>
         </div>
         <button className="btn btn-primary" onClick={openCreate}>+ New client</button>
       </div>
@@ -107,7 +137,7 @@ export function Clients() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th><th>Status</th><th>Country</th><th>Currency</th><th>GSTIN</th><th>POC</th><th>Contacts</th><th></th>
+                  <th>Name</th><th>Status</th><th>POC</th><th>POC email</th><th>POC phone</th><th>GSTIN</th><th>Country</th><th>Contacts</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -120,11 +150,14 @@ export function Clients() {
                         <div className="text-xs text-slate-500">{c.legalName}</div>
                       </td>
                       <td><span className="badge bg-slate-100">{c.status}</span></td>
-                      <td>{c.country}</td>
-                      <td>{c.currency}</td>
+                      <td className="text-xs">{poc?.name ?? '—'}</td>
+                      <td className="text-xs">{poc?.email ?? '—'}</td>
+                      <td className="text-xs">{poc?.phone ?? '—'}</td>
                       <td className="text-xs">{c.taxId || '—'}</td>
-                      <td className="text-xs">{poc ? `${poc.name} (${poc.role})` : '—'}</td>
-                      <td className="text-xs text-slate-500">{c.contacts?.length ?? 0}</td>
+                      <td className="text-xs">{c.country} · {c.currency}</td>
+                      <td className="text-xs text-slate-500">
+                        <Link to={`/clients/${c.id}`} className="text-brand-600 hover:underline">{c.contacts?.length ?? 0} →</Link>
+                      </td>
                       <td>
                         <div className="flex gap-2 justify-end">
                           <button className="btn btn-secondary py-1 text-xs" onClick={() => openEdit(c)}>Edit</button>
@@ -135,7 +168,7 @@ export function Clients() {
                   );
                 })}
                 {!data?.length && (
-                  <tr><td colSpan={8} className="text-center text-slate-500 py-4">No clients yet.</td></tr>
+                  <tr><td colSpan={9} className="text-center text-slate-500 py-4">No clients yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -157,6 +190,7 @@ export function Clients() {
           </>
         }
       >
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="Legal name" required>
             <input className="input" value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
@@ -185,6 +219,23 @@ export function Clients() {
             <input className="input" value={form.placeOfSupply} onChange={(e) => setForm({ ...form, placeOfSupply: e.target.value.toUpperCase() })} />
           </Field>
         </div>
+
+        <div className="border-t pt-3 mt-1">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Primary point of contact</h3>
+          <p className="text-[11px] text-slate-500 mb-2">Marked as primary POC automatically. Add more contacts (billing, technical, etc.) from the client detail page after saving.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Field label="Contact name">
+              <input className="input" value={form.primaryContactName} onChange={(e) => setForm({ ...form, primaryContactName: e.target.value })} />
+            </Field>
+            <Field label="Email">
+              <input className="input" type="email" value={form.primaryContactEmail} onChange={(e) => setForm({ ...form, primaryContactEmail: e.target.value })} />
+            </Field>
+            <Field label="Phone">
+              <input className="input" value={form.primaryContactPhone} onChange={(e) => setForm({ ...form, primaryContactPhone: e.target.value })} />
+            </Field>
+          </div>
+        </div>
+
         {upsert.isError && <p className="text-red-600 text-sm">{(upsert.error as any)?.response?.data?.message || 'Failed'}</p>}
       </Modal>
 

@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '@/shared/api/client';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
 
 type Role = 'POC' | 'BILLING' | 'TECHNICAL' | 'DECISION_MAKER' | 'OTHER';
 const ROLES: Role[] = ['POC', 'BILLING', 'TECHNICAL', 'DECISION_MAKER', 'OTHER'];
@@ -142,12 +143,20 @@ export function ClientDetail() {
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input className="input" placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <input className="input" type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input className="input" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <Field label="Name" required>
+            <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label="Role" hint="POC = primary point of contact; Billing = receives invoices.">
+            <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </Field>
+          <Field label="Email">
+            <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </Field>
+          <Field label="Phone">
+            <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          </Field>
           <label className="text-sm flex items-center gap-2 md:col-span-2">
             <input type="checkbox" checked={form.isPrimary} onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })} />
             Mark as primary POC

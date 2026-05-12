@@ -4,6 +4,17 @@ import { api } from '@/shared/api/client';
 import { fmtMoney, toMinor } from '@/shared/lib/money';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
+
+const MODEL_HINTS: Record<string, string> = {
+  FLAT_MONTH: 'Single fixed fee per client per month. Ignores user count.',
+  FLAT_YEAR: 'Single fixed fee per client per year. Ignores user count.',
+  PER_USER_MONTH: 'Per-unit amount × number of users, billed monthly.',
+  PER_USER_YEAR: 'Per-unit amount × number of users, billed yearly.',
+  TIERED_PER_USER: 'Slab-based per-user — different rate per slab band.',
+  VOLUME_STEP: 'All units charged at a single slab rate based on total count.',
+  ONE_TIME: 'Non-recurring fee, added once on the first invoice.',
+};
 
 type Model = 'FLAT_MONTH' | 'FLAT_YEAR' | 'PER_USER_MONTH' | 'PER_USER_YEAR' | 'TIERED_PER_USER' | 'VOLUME_STEP' | 'ONE_TIME';
 const MODELS: Model[] = ['FLAT_MONTH', 'FLAT_YEAR', 'PER_USER_MONTH', 'PER_USER_YEAR', 'TIERED_PER_USER', 'VOLUME_STEP', 'ONE_TIME'];
@@ -227,10 +238,18 @@ export function Catalog() {
           </>
         }
       >
-        <input className="input" placeholder="Name *" value={prod.name} onChange={(e) => setProd({ ...prod, name: e.target.value })} />
-        <input className="input" placeholder="SKU" value={prod.sku} onChange={(e) => setProd({ ...prod, sku: e.target.value })} />
-        <input className="input" placeholder="Category" value={prod.category} onChange={(e) => setProd({ ...prod, category: e.target.value })} />
-        <textarea className="input min-h-[80px]" placeholder="Description" value={prod.description} onChange={(e) => setProd({ ...prod, description: e.target.value })} />
+        <Field label="Name" required>
+          <input className="input" value={prod.name} onChange={(e) => setProd({ ...prod, name: e.target.value })} />
+        </Field>
+        <Field label="SKU" hint="Internal identifier (optional).">
+          <input className="input" value={prod.sku} onChange={(e) => setProd({ ...prod, sku: e.target.value })} />
+        </Field>
+        <Field label="Category" hint="e.g. SaaS, IT Services, Hardware.">
+          <input className="input" value={prod.category} onChange={(e) => setProd({ ...prod, category: e.target.value })} />
+        </Field>
+        <Field label="Description">
+          <textarea className="input min-h-[80px]" value={prod.description} onChange={(e) => setProd({ ...prod, description: e.target.value })} />
+        </Field>
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={prod.isActive} onChange={(e) => setProd({ ...prod, isActive: e.target.checked })} />
           Active
@@ -250,12 +269,18 @@ export function Catalog() {
           </>
         }
       >
-        <select className="input" value={plan.productId} onChange={(e) => setPlan({ ...plan, productId: e.target.value })} disabled={!!modal?.id}>
-          <option value="">— pick product —</option>
-          {data?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <input className="input" placeholder="Plan name *" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
-        <textarea className="input min-h-[80px]" placeholder="Description" value={plan.description} onChange={(e) => setPlan({ ...plan, description: e.target.value })} />
+        <Field label="Product" required>
+          <select className="input" value={plan.productId} onChange={(e) => setPlan({ ...plan, productId: e.target.value })} disabled={!!modal?.id}>
+            <option value="">— pick product —</option>
+            {data?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Plan name" required>
+          <input className="input" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
+        </Field>
+        <Field label="Description">
+          <textarea className="input min-h-[80px]" value={plan.description} onChange={(e) => setPlan({ ...plan, description: e.target.value })} />
+        </Field>
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={plan.isActive} onChange={(e) => setPlan({ ...plan, isActive: e.target.checked })} />
           Active
@@ -276,21 +301,35 @@ export function Catalog() {
           </>
         }
       >
-        <select className="input" value={tier.planId} onChange={(e) => setTier({ ...tier, planId: e.target.value })} disabled={!!modal?.id}>
-          <option value="">— pick plan —</option>
-          {data?.flatMap((p: any) => p.plans.map((pl: any) => (
-            <option key={pl.id} value={pl.id}>{p.name} — {pl.name}</option>
-          )))}
-        </select>
-        <input className="input" placeholder="Tier name *" value={tier.name} onChange={(e) => setTier({ ...tier, name: e.target.value })} />
-        <select className="input" value={tier.modelType} onChange={(e) => setTier({ ...tier, modelType: e.target.value as Model })}>
-          {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <div className="grid grid-cols-2 gap-2">
-          <input className="input" type="number" placeholder="Base ₹" value={tier.baseAmountRupees} onChange={(e) => setTier({ ...tier, baseAmountRupees: +e.target.value })} />
-          <input className="input" type="number" placeholder="Per unit ₹" value={tier.perUnitAmountRupees} onChange={(e) => setTier({ ...tier, perUnitAmountRupees: +e.target.value })} />
-          <input className="input" type="number" placeholder="Tax %" value={tier.taxRate} onChange={(e) => setTier({ ...tier, taxRate: +e.target.value })} />
-          <input className="input" type="number" placeholder="Min units" value={tier.minUnits} onChange={(e) => setTier({ ...tier, minUnits: +e.target.value })} />
+        <Field label="Plan" required>
+          <select className="input" value={tier.planId} onChange={(e) => setTier({ ...tier, planId: e.target.value })} disabled={!!modal?.id}>
+            <option value="">— pick plan —</option>
+            {data?.flatMap((p: any) => p.plans.map((pl: any) => (
+              <option key={pl.id} value={pl.id}>{p.name} — {pl.name}</option>
+            )))}
+          </select>
+        </Field>
+        <Field label="Tier name" required hint="Human label for this rate (e.g. 'Standard / user / month').">
+          <input className="input" value={tier.name} onChange={(e) => setTier({ ...tier, name: e.target.value })} />
+        </Field>
+        <Field label="Rate model" required hint={MODEL_HINTS[tier.modelType]}>
+          <select className="input" value={tier.modelType} onChange={(e) => setTier({ ...tier, modelType: e.target.value as Model })}>
+            {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Base amount (₹)" hint="Used by FLAT_MONTH / FLAT_YEAR / ONE_TIME.">
+            <input className="input" type="number" min={0} value={tier.baseAmountRupees} onChange={(e) => setTier({ ...tier, baseAmountRupees: +e.target.value })} />
+          </Field>
+          <Field label="Per-unit amount (₹)" hint="Used by PER_USER_*; rate per user per cycle.">
+            <input className="input" type="number" min={0} value={tier.perUnitAmountRupees} onChange={(e) => setTier({ ...tier, perUnitAmountRupees: +e.target.value })} />
+          </Field>
+          <Field label="Tax rate (%)" hint="GST slab — 0, 5, 12, 18, 28.">
+            <input className="input" type="number" min={0} step={0.5} value={tier.taxRate} onChange={(e) => setTier({ ...tier, taxRate: +e.target.value })} />
+          </Field>
+          <Field label="Minimum units" hint="Billed at least this many units even if actual is lower.">
+            <input className="input" type="number" min={0} value={tier.minUnits} onChange={(e) => setTier({ ...tier, minUnits: +e.target.value })} />
+          </Field>
         </div>
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={tier.isActive} onChange={(e) => setTier({ ...tier, isActive: e.target.checked })} />

@@ -4,6 +4,7 @@ import { api } from '@/shared/api/client';
 import { fmtDate } from '@/shared/lib/format-date';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
 
 type Type = 'TAX_FILING' | 'CONTRACT_REVIEW' | 'KYC' | 'LICENSE' | 'SLA' | 'AUDIT';
 type Freq = 'MONTHLY' | 'QUARTERLY' | 'HALFYEARLY' | 'YEARLY' | 'ONE_OFF';
@@ -222,22 +223,38 @@ export function Compliance() {
           </>
         }
       >
-        <input className="input" placeholder="Title *" value={itemForm.title} onChange={(e) => setItemForm({ ...itemForm, title: e.target.value })} />
-        <div className="grid grid-cols-2 gap-2">
-          <select className="input" value={itemForm.type} onChange={(e) => setItemForm({ ...itemForm, type: e.target.value as Type })}>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select className="input" value={itemForm.frequency} onChange={(e) => setItemForm({ ...itemForm, frequency: e.target.value as Freq })}>
-            {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-          <input className="input" type="date" value={itemForm.nextDueDate} onChange={(e) => setItemForm({ ...itemForm, nextDueDate: e.target.value })} />
-          <input className="input" type="number" placeholder="Reminder lead days" value={itemForm.reminderLeadDays} onChange={(e) => setItemForm({ ...itemForm, reminderLeadDays: +e.target.value })} />
-          <input className="input" placeholder="Jurisdiction" value={itemForm.jurisdiction} onChange={(e) => setItemForm({ ...itemForm, jurisdiction: e.target.value })} />
-          <select className="input" value={itemForm.status} onChange={(e) => setItemForm({ ...itemForm, status: e.target.value as 'ACTIVE' | 'ARCHIVED' })}>
-            {ITEM_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+        <Field label="Title" required>
+          <input className="input" value={itemForm.title} onChange={(e) => setItemForm({ ...itemForm, title: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Type" hint="What kind of obligation: tax filing, KYC, license, audit, etc.">
+            <select className="input" value={itemForm.type} onChange={(e) => setItemForm({ ...itemForm, type: e.target.value as Type })}>
+              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Frequency" hint="How often it repeats — drives the auto-roll-forward.">
+            <select className="input" value={itemForm.frequency} onChange={(e) => setItemForm({ ...itemForm, frequency: e.target.value as Freq })}>
+              {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label="Next due date" required>
+            <input className="input" type="date" value={itemForm.nextDueDate} onChange={(e) => setItemForm({ ...itemForm, nextDueDate: e.target.value })} />
+          </Field>
+          <Field label="Reminder lead time (days)" hint="Days before due date a task card is auto-created.">
+            <input className="input" type="number" min={0} value={itemForm.reminderLeadDays} onChange={(e) => setItemForm({ ...itemForm, reminderLeadDays: +e.target.value })} />
+          </Field>
+          <Field label="Jurisdiction">
+            <input className="input" value={itemForm.jurisdiction} onChange={(e) => setItemForm({ ...itemForm, jurisdiction: e.target.value })} />
+          </Field>
+          <Field label="Status">
+            <select className="input" value={itemForm.status} onChange={(e) => setItemForm({ ...itemForm, status: e.target.value as 'ACTIVE' | 'ARCHIVED' })}>
+              {ITEM_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
         </div>
-        <textarea className="input min-h-[60px]" placeholder="Notes" value={itemForm.notes} onChange={(e) => setItemForm({ ...itemForm, notes: e.target.value })} />
+        <Field label="Notes">
+          <textarea className="input min-h-[60px]" value={itemForm.notes} onChange={(e) => setItemForm({ ...itemForm, notes: e.target.value })} />
+        </Field>
       </Modal>
 
       {/* Template modal */}
@@ -255,19 +272,33 @@ export function Compliance() {
           </>
         }
       >
-        <input className="input" placeholder="Title *" value={tplForm.title} onChange={(e) => setTplForm({ ...tplForm, title: e.target.value })} />
-        <div className="grid grid-cols-2 gap-2">
-          <select className="input" value={tplForm.type} onChange={(e) => setTplForm({ ...tplForm, type: e.target.value as Type })}>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select className="input" value={tplForm.frequency} onChange={(e) => setTplForm({ ...tplForm, frequency: e.target.value as Freq })}>
-            {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-          <input className="input" type="number" min={1} max={31} placeholder="Day of month (1-31)" value={tplForm.dayOfMonth ?? ''} onChange={(e) => setTplForm({ ...tplForm, dayOfMonth: e.target.value ? +e.target.value : undefined })} />
-          <input className="input" type="number" min={1} max={12} placeholder="Month of year (1-12)" value={tplForm.monthOfYear ?? ''} onChange={(e) => setTplForm({ ...tplForm, monthOfYear: e.target.value ? +e.target.value : undefined })} />
-          <input className="input md:col-span-2" placeholder="Jurisdiction" value={tplForm.jurisdiction} onChange={(e) => setTplForm({ ...tplForm, jurisdiction: e.target.value })} />
+        <Field label="Title" required>
+          <input className="input" value={tplForm.title} onChange={(e) => setTplForm({ ...tplForm, title: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Type">
+            <select className="input" value={tplForm.type} onChange={(e) => setTplForm({ ...tplForm, type: e.target.value as Type })}>
+              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Frequency">
+            <select className="input" value={tplForm.frequency} onChange={(e) => setTplForm({ ...tplForm, frequency: e.target.value as Freq })}>
+              {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label="Day of month (1-31)" hint="Default due day when instantiating an item.">
+            <input className="input" type="number" min={1} max={31} value={tplForm.dayOfMonth ?? ''} onChange={(e) => setTplForm({ ...tplForm, dayOfMonth: e.target.value ? +e.target.value : undefined })} />
+          </Field>
+          <Field label="Month of year (1-12)" hint="Only used for YEARLY templates.">
+            <input className="input" type="number" min={1} max={12} value={tplForm.monthOfYear ?? ''} onChange={(e) => setTplForm({ ...tplForm, monthOfYear: e.target.value ? +e.target.value : undefined })} />
+          </Field>
+          <Field label="Jurisdiction" className="md:col-span-2">
+            <input className="input" value={tplForm.jurisdiction} onChange={(e) => setTplForm({ ...tplForm, jurisdiction: e.target.value })} />
+          </Field>
         </div>
-        <textarea className="input min-h-[60px]" placeholder="Description" value={tplForm.description} onChange={(e) => setTplForm({ ...tplForm, description: e.target.value })} />
+        <Field label="Description">
+          <textarea className="input min-h-[60px]" value={tplForm.description} onChange={(e) => setTplForm({ ...tplForm, description: e.target.value })} />
+        </Field>
       </Modal>
 
       <ConfirmDelete open={!!confirmItem} onClose={() => setConfirmItem(null)} onConfirm={() => confirmItem && delItem.mutate(confirmItem)} title="Delete item?" busy={delItem.isPending} />

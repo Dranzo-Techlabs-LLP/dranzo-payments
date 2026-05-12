@@ -27,11 +27,32 @@ export class SubscriptionsService {
     private readonly pricing: PricingEngine,
   ) {}
 
-  list(orgId: string) {
-    return this.subs.find({
+  async list(orgId: string) {
+    const rows = await this.subs.find({
       where: { organizationId: orgId },
       relations: { client: true, plan: true, pricingTier: true },
       order: { nextRenewalDate: 'ASC' },
+    });
+    const org = await this.orgs.findOne({ where: { id: orgId } });
+    return rows.map((s) => {
+      let feePreview: { subtotal: number; tax: number; total: number; currency: string } | null = null;
+      try {
+        if (org && s.pricingTier && s.client) {
+          const p = this.pricing.preview(
+            s,
+            s.pricingTier,
+            org,
+            s.client,
+            s.billingCycle,
+            s.currentPeriodStart,
+            s.currentPeriodEnd,
+          );
+          feePreview = { subtotal: p.subtotal, tax: p.tax, total: p.total, currency: p.currency };
+        }
+      } catch {
+        feePreview = null;
+      }
+      return { ...s, feePreview };
     });
   }
 

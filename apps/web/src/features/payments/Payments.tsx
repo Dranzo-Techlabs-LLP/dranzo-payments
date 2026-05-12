@@ -5,6 +5,7 @@ import { fmtMoney, toMinor } from '@/shared/lib/money';
 import { fmtDate } from '@/shared/lib/format-date';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
 
 type Method = 'BANK' | 'UPI' | 'CARD' | 'CHEQUE' | 'OTHER';
 const METHODS: Method[] = ['BANK', 'UPI', 'CARD', 'CHEQUE', 'OTHER'];
@@ -125,21 +126,33 @@ export function Payments() {
           </>
         }
       >
-        <select className="input" value={form.invoiceId} onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}>
-          <option value="">— pick invoice —</option>
-          {invoices.data?.filter((i: any) => i.status === 'SENT' || i.status === 'OVERDUE').map((i: any) => (
-            <option key={i.id} value={i.id}>{i.invoiceNo} — {fmtMoney(i.total, i.currency)} ({i.status})</option>
-          ))}
-        </select>
-        <div className="grid grid-cols-2 gap-2">
-          <input className="input" type="number" placeholder="Amount ₹" value={form.amountRupees} onChange={(e) => setForm({ ...form, amountRupees: +e.target.value })} />
-          <select className="input" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value as Method })}>
-            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+        <Field label="Invoice" required>
+          <select className="input" value={form.invoiceId} onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}>
+            <option value="">— pick invoice —</option>
+            {invoices.data?.filter((i: any) => i.status === 'SENT' || i.status === 'OVERDUE').map((i: any) => (
+              <option key={i.id} value={i.id}>{i.invoiceNo} — {fmtMoney(i.total, i.currency)} ({i.status})</option>
+            ))}
           </select>
-          <input className="input" type="date" value={form.receivedOn} onChange={(e) => setForm({ ...form, receivedOn: e.target.value })} />
-          <input className="input" placeholder="Reference no" value={form.referenceNo} onChange={(e) => setForm({ ...form, referenceNo: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Amount (₹)" required>
+            <input className="input" type="number" min={0} step={0.01} value={form.amountRupees} onChange={(e) => setForm({ ...form, amountRupees: +e.target.value })} />
+          </Field>
+          <Field label="Method" required>
+            <select className="input" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value as Method })}>
+              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+          <Field label="Received on" required>
+            <input className="input" type="date" value={form.receivedOn} onChange={(e) => setForm({ ...form, receivedOn: e.target.value })} />
+          </Field>
+          <Field label="Reference number" hint="UTR, cheque no, transaction ID, etc.">
+            <input className="input" value={form.referenceNo} onChange={(e) => setForm({ ...form, referenceNo: e.target.value })} />
+          </Field>
         </div>
-        <textarea className="input min-h-[60px]" placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        <Field label="Notes">
+          <textarea className="input min-h-[60px]" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </Field>
         {create.isError && <p className="text-sm text-red-600">{(create.error as any)?.response?.data?.message || 'Failed'}</p>}
       </Modal>
 

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '@/shared/api/client';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
 
 type Status = 'ACTIVE' | 'ON_HOLD' | 'CHURNED';
 const STATUSES: Status[] = ['ACTIVE', 'ON_HOLD', 'CHURNED'];
@@ -157,16 +158,32 @@ export function Clients() {
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input className="input" placeholder="Legal name *" value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
-          <input className="input" placeholder="Display name *" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
-          <input className="input" placeholder="Industry" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
-          <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Status })}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <input className="input" placeholder="Country (IN)" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value.toUpperCase() })} />
-          <input className="input" placeholder="Currency (INR)" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} />
-          <input className="input" placeholder="GSTIN / VAT" value={form.taxId} onChange={(e) => setForm({ ...form, taxId: e.target.value })} />
-          <input className="input" placeholder="Place of supply (e.g. KA)" value={form.placeOfSupply} onChange={(e) => setForm({ ...form, placeOfSupply: e.target.value.toUpperCase() })} />
+          <Field label="Legal name" required>
+            <input className="input" value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
+          </Field>
+          <Field label="Display name" required>
+            <input className="input" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
+          </Field>
+          <Field label="Industry">
+            <input className="input" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
+          </Field>
+          <Field label="Status">
+            <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Status })}>
+              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Country (ISO-2)" hint="Two-letter country code, e.g. IN, US.">
+            <input className="input" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value.toUpperCase() })} />
+          </Field>
+          <Field label="Currency (ISO-3)" hint="Three-letter currency code, e.g. INR, USD.">
+            <input className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} />
+          </Field>
+          <Field label="GSTIN / VAT" hint="Leave blank if unregistered — no tax will be applied.">
+            <input className="input" value={form.taxId} onChange={(e) => setForm({ ...form, taxId: e.target.value })} />
+          </Field>
+          <Field label="Place of supply" hint="Two-letter state code (e.g. KA) — drives CGST/SGST vs IGST.">
+            <input className="input" value={form.placeOfSupply} onChange={(e) => setForm({ ...form, placeOfSupply: e.target.value.toUpperCase() })} />
+          </Field>
         </div>
         {upsert.isError && <p className="text-red-600 text-sm">{(upsert.error as any)?.response?.data?.message || 'Failed'}</p>}
       </Modal>

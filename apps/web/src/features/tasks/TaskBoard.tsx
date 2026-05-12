@@ -4,6 +4,7 @@ import { api } from '@/shared/api/client';
 import { fmtDate } from '@/shared/lib/format-date';
 import { Modal } from '@/shared/ui/Modal';
 import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
+import { Field } from '@/shared/ui/Field';
 
 type Status = 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'WAITING_ON_CLIENT' | 'OVERDUE' | 'DONE';
 type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
@@ -168,16 +169,26 @@ export function TaskBoard() {
           </>
         }
       >
-        <input className="input" placeholder="Title *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-        <textarea className="input min-h-[80px]" placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <div className="grid grid-cols-3 gap-2">
-          <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Status })}>
-            {ALL_STATUSES.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
-          </select>
-          <select className="input" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <input className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
+        <Field label="Title" required>
+          <input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        </Field>
+        <Field label="Description">
+          <textarea className="input min-h-[80px]" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Status">
+            <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Status })}>
+              {ALL_STATUSES.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+            </select>
+          </Field>
+          <Field label="Priority">
+            <select className="input" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </Field>
+          <Field label="Due date">
+            <input className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
+          </Field>
         </div>
       </Modal>
 

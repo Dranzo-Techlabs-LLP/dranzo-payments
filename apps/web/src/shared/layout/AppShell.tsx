@@ -5,6 +5,12 @@ import { api } from '@/shared/api/client';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/clients', label: 'Clients', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/subscriptions', label: 'Subscriptions', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/tasks', label: 'Task board', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/invoices', label: 'Invoices', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/compliance', label: 'Compliance', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/catalog', label: 'Catalog', roles: ['ADMIN', 'FINANCE'] },
   { to: '/settings', label: 'Settings', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
   { to: '/team', label: 'Team', roles: ['ADMIN'] },
   { to: '/audit', label: 'Audit log', roles: ['ADMIN', 'FINANCE'] },

@@ -85,7 +85,9 @@ export function Subscriptions() {
 
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingClient, setEditingClient] = useState<string>('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [editPreview, setEditPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
 
   const [form, setForm] = useState<CreateForm>(CREATE_EMPTY);
   const [edit, setEdit] = useState<EditForm>(EDIT_EMPTY);
@@ -106,6 +108,22 @@ export function Subscriptions() {
     const tax = Math.round((subtotal * (form.taxRate || 0)) / 100);
     setPreview({ subtotal, tax, total: subtotal + tax, currency: 'INR' });
   }, [creating, form.modelType, form.rateRupees, form.taxRate, form.unitCount]);
+
+  // Live preview during edit — same client-side math, plus custom override.
+  useEffect(() => {
+    if (!editingId) {
+      setEditPreview(null);
+      return;
+    }
+    const def = modelDef(edit.modelType);
+    const baseRate = parseFloat(edit.rateRupees) || 0;
+    const override = edit.customRateRupees.trim() === '' ? null : parseFloat(edit.customRateRupees);
+    const effectiveRate = override != null && !Number.isNaN(override) ? override : baseRate;
+    const ratePaise = Math.round(effectiveRate * 100);
+    const subtotal = def.perUser ? Math.max(1, edit.unitCount) * ratePaise : ratePaise;
+    const tax = Math.round((subtotal * (edit.taxRate || 0)) / 100);
+    setEditPreview({ subtotal, tax, total: subtotal + tax, currency: 'INR' });
+  }, [editingId, edit.modelType, edit.rateRupees, edit.taxRate, edit.unitCount, edit.customRateRupees]);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -182,6 +200,7 @@ export function Subscriptions() {
     const model = (tier?.modelType ?? 'PER_USER_MONTH') as Model;
     const def = modelDef(model);
     const rateMinor = def.perUser ? Number(tier?.perUnitAmount ?? 0) : Number(tier?.baseAmount ?? 0);
+    setEditingClient(s.client?.displayName ?? '');
     setEdit({
       clientId: s.clientId,
       billingCycle: s.billingCycle,
@@ -333,12 +352,11 @@ export function Subscriptions() {
           <Field label="Start date" required>
             <input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
           </Field>
-          <Field
-            label={modelDef(form.modelType).perUser ? 'User count' : 'Unit count'}
-            hint={modelDef(form.modelType).perUser ? 'Number of paid users on the subscription.' : 'Used by the pricing engine but ignored for flat / one-time rates.'}
-          >
-            <input className="input" type="number" min={1} value={form.unitCount} onChange={(e) => setForm({ ...form, unitCount: +e.target.value })} />
-          </Field>
+          {modelDef(form.modelType).perUser && (
+            <Field label="User count" hint="Number of paid users on the subscription.">
+              <input className="input" type="number" min={1} value={form.unitCount} onChange={(e) => setForm({ ...form, unitCount: +e.target.value })} />
+            </Field>
+          )}
           <Field label="Reminder lead days" hint="Days before renewal the task card is auto-created.">
             <input className="input" type="number" min={0} value={form.reminderLeadDays} onChange={(e) => setForm({ ...form, reminderLeadDays: +e.target.value })} />
           </Field>
@@ -388,6 +406,11 @@ export function Subscriptions() {
           </>
         }
       >
+        <div className="mb-3 p-3 rounded-md bg-brand-50 border border-brand-100">
+          <div className="text-[11px] uppercase tracking-wider text-brand-700">Client</div>
+          <div className="font-medium">{editingClient || '—'}</div>
+          <div className="text-[11px] text-slate-500">To move this subscription to another client, delete it and create a new one (keeps invoice history intact).</div>
+        </div>
         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rate</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="Rate model" hint={modelDef(edit.modelType).hint}>
@@ -441,9 +464,11 @@ export function Subscriptions() {
 
         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-t pt-3 mt-2">Subscription</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label={modelDef(edit.modelType).perUser ? 'User count' : 'Unit count'}>
-            <input className="input" type="number" min={1} value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
-          </Field>
+          {modelDef(edit.modelType).perUser && (
+            <Field label="User count">
+              <input className="input" type="number" min={1} value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
+            </Field>
+          )}
           <Field label="Status">
             <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -453,6 +478,29 @@ export function Subscriptions() {
             <textarea className="input min-h-[80px]" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
           </Field>
         </div>
+
+        {editPreview && (
+          <div className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200">
+            <div className="text-xs text-slate-600 mb-2 font-medium">Charge preview / cycle</div>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <div className="text-[11px] text-slate-500">Subtotal</div>
+                <div>{fmtMoney(editPreview.subtotal, editPreview.currency)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">Tax</div>
+                <div>{fmtMoney(editPreview.tax, editPreview.currency)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">Total / cycle</div>
+                <div className="font-semibold">{fmtMoney(editPreview.total, editPreview.currency)}</div>
+              </div>
+            </div>
+            {edit.customRateRupees.trim() !== '' && (
+              <div className="text-[11px] text-amber-700 mt-2">Using custom rate override (₹{edit.customRateRupees}). Clear the field to fall back to ₹{edit.rateRupees}.</div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <ConfirmDelete

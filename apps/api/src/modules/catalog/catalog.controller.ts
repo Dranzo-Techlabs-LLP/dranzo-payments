@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Ip, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 import { UpsertProductDto } from './dto/upsert-product.dto';
@@ -38,6 +50,13 @@ export class CatalogController {
     return this.svc.updateProduct(user, id, dto, ip);
   }
 
+  @Delete('products/:id')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteProduct(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Ip() ip: string) {
+    return this.svc.deleteProduct(user, id, ip);
+  }
+
   @Post('plans')
   @Roles(Role.ADMIN, Role.FINANCE)
   createPlan(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpsertPlanDto, @Ip() ip: string) {
@@ -50,6 +69,13 @@ export class CatalogController {
     return this.svc.updatePlan(user, id, dto, ip);
   }
 
+  @Delete('plans/:id')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deletePlan(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Ip() ip: string) {
+    return this.svc.deletePlan(user, id, ip);
+  }
+
   @Post('tiers')
   @Roles(Role.ADMIN, Role.FINANCE)
   createTier(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpsertTierDto, @Ip() ip: string) {
@@ -60,5 +86,12 @@ export class CatalogController {
   @Roles(Role.ADMIN, Role.FINANCE)
   updateTier(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpsertTierDto, @Ip() ip: string) {
     return this.svc.updateTier(user, id, dto, ip);
+  }
+
+  @Delete('tiers/:id')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteTier(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Ip() ip: string) {
+    return this.svc.deleteTier(user, id, ip);
   }
 }

@@ -9,6 +9,7 @@ const NAV = [
   { to: '/subscriptions', label: 'Subscriptions', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
   { to: '/tasks', label: 'Task board', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
   { to: '/invoices', label: 'Invoices', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
+  { to: '/payments', label: 'Payments', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
   { to: '/compliance', label: 'Compliance', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },
   { to: '/catalog', label: 'Catalog', roles: ['ADMIN', 'FINANCE'] },
   { to: '/settings', label: 'Settings', roles: ['ADMIN', 'FINANCE', 'ACCOUNT_MANAGER', 'VIEWER'] },

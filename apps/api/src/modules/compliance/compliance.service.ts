@@ -36,6 +36,38 @@ export class ComplianceService {
     return saved;
   }
 
+  async updateTemplate(user: AuthenticatedUser, id: string, dto: UpsertComplianceTemplateDto, ip?: string) {
+    const t = await this.templates.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!t) throw new NotFoundException();
+    Object.assign(t, dto, { updatedBy: user.userId });
+    const saved = await this.templates.save(t);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'update_compliance_template', entity: 'ComplianceTemplate', entityId: id, after: saved, ip,
+    });
+    return saved;
+  }
+
+  async deleteTemplate(user: AuthenticatedUser, id: string, ip?: string) {
+    const t = await this.templates.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!t) throw new NotFoundException();
+    await this.templates.softRemove(t);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'delete_compliance_template', entity: 'ComplianceTemplate', entityId: id, ip,
+    });
+  }
+
+  async deleteItem(user: AuthenticatedUser, id: string, ip?: string) {
+    const i = await this.items.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!i) throw new NotFoundException();
+    await this.items.softRemove(i);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'delete_compliance_item', entity: 'ComplianceItem', entityId: id, ip,
+    });
+  }
+
   // items
   listItems(orgId: string) {
     return this.items.find({

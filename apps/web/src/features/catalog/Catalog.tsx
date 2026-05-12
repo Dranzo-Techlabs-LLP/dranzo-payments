@@ -2,9 +2,13 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { fmtMoney, toMinor } from '@/shared/lib/money';
+import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 
 type Model = 'FLAT_MONTH' | 'FLAT_YEAR' | 'PER_USER_MONTH' | 'PER_USER_YEAR' | 'TIERED_PER_USER' | 'VOLUME_STEP' | 'ONE_TIME';
 const MODELS: Model[] = ['FLAT_MONTH', 'FLAT_YEAR', 'PER_USER_MONTH', 'PER_USER_YEAR', 'TIERED_PER_USER', 'VOLUME_STEP', 'ONE_TIME'];
+
+type Kind = 'product' | 'plan' | 'tier';
 
 export function Catalog() {
   const qc = useQueryClient();
@@ -13,8 +17,11 @@ export function Catalog() {
     queryFn: async () => (await api.get('/catalog/products')).data,
   });
 
-  const [prod, setProd] = useState({ name: '', sku: '', category: '' });
-  const [plan, setPlan] = useState({ productId: '', name: '', description: '' });
+  const [modal, setModal] = useState<{ kind: Kind; id: string | null; planId?: string; productId?: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: Kind; id: string } | null>(null);
+
+  const [prod, setProd] = useState({ name: '', sku: '', category: '', description: '', isActive: true });
+  const [plan, setPlan] = useState({ productId: '', name: '', description: '', isActive: true });
   const [tier, setTier] = useState({
     planId: '',
     name: '',
@@ -24,25 +31,35 @@ export function Catalog() {
     perUnitAmountRupees: 500,
     taxRate: 18,
     minUnits: 1,
+    isActive: true,
   });
 
-  const createProduct = useMutation({
-    mutationFn: async () => (await api.post('/catalog/products', prod)).data,
+  const upsertProduct = useMutation({
+    mutationFn: async () => {
+      const body = prod;
+      return modal?.id
+        ? (await api.patch(`/catalog/products/${modal.id}`, body)).data
+        : (await api.post('/catalog/products', body)).data;
+    },
     onSuccess: () => {
-      setProd({ name: '', sku: '', category: '' });
       qc.invalidateQueries({ queryKey: ['products'] });
+      setModal(null);
     },
   });
-  const createPlan = useMutation({
-    mutationFn: async () => (await api.post('/catalog/plans', plan)).data,
+  const upsertPlan = useMutation({
+    mutationFn: async () => {
+      return modal?.id
+        ? (await api.patch(`/catalog/plans/${modal.id}`, plan)).data
+        : (await api.post('/catalog/plans', plan)).data;
+    },
     onSuccess: () => {
-      setPlan({ productId: '', name: '', description: '' });
       qc.invalidateQueries({ queryKey: ['products'] });
+      setModal(null);
     },
   });
-  const createTier = useMutation({
-    mutationFn: async () =>
-      (await api.post('/catalog/tiers', {
+  const upsertTier = useMutation({
+    mutationFn: async () => {
+      const body = {
         planId: tier.planId,
         name: tier.name,
         modelType: tier.modelType,
@@ -51,75 +68,94 @@ export function Catalog() {
         perUnitAmount: toMinor(tier.perUnitAmountRupees),
         taxRate: tier.taxRate,
         minUnits: tier.minUnits,
-      })).data,
+        isActive: tier.isActive,
+      };
+      return modal?.id
+        ? (await api.patch(`/catalog/tiers/${modal.id}`, body)).data
+        : (await api.post('/catalog/tiers', body)).data;
+    },
     onSuccess: () => {
-      setTier({ ...tier, name: '', perUnitAmountRupees: 500 });
       qc.invalidateQueries({ queryKey: ['products'] });
+      setModal(null);
     },
   });
 
-  return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold">Catalog</h1>
-        <p className="text-slate-500">Products → Plans → Pricing Tiers. 7 model types supported.</p>
-      </div>
+  const del = useMutation({
+    mutationFn: async (vars: { kind: Kind; id: string }) =>
+      api.delete(`/catalog/${vars.kind}s/${vars.id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      setConfirm(null);
+    },
+  });
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card">
-          <div className="card-body space-y-2">
-            <h2 className="font-medium">New product</h2>
-            <input className="input" placeholder="Name" value={prod.name} onChange={(e) => setProd({ ...prod, name: e.target.value })} />
-            <input className="input" placeholder="SKU" value={prod.sku} onChange={(e) => setProd({ ...prod, sku: e.target.value })} />
-            <input className="input" placeholder="Category" value={prod.category} onChange={(e) => setProd({ ...prod, category: e.target.value })} />
-            <button className="btn btn-primary" disabled={!prod.name || createProduct.isPending} onClick={() => createProduct.mutate()}>
-              Add product
-            </button>
-          </div>
+  function newProduct() {
+    setProd({ name: '', sku: '', category: '', description: '', isActive: true });
+    setModal({ kind: 'product', id: null });
+  }
+  function editProduct(p: any) {
+    setProd({ name: p.name, sku: p.sku ?? '', category: p.category ?? '', description: p.description ?? '', isActive: !!p.isActive });
+    setModal({ kind: 'product', id: p.id });
+  }
+  function newPlan(productId?: string) {
+    setPlan({ productId: productId ?? '', name: '', description: '', isActive: true });
+    setModal({ kind: 'plan', id: null });
+  }
+  function editPlan(pl: any) {
+    setPlan({ productId: pl.productId, name: pl.name, description: pl.description ?? '', isActive: !!pl.isActive });
+    setModal({ kind: 'plan', id: pl.id });
+  }
+  function newTier(planId?: string) {
+    setTier({
+      planId: planId ?? '',
+      name: '',
+      modelType: 'PER_USER_MONTH',
+      currency: 'INR',
+      baseAmountRupees: 0,
+      perUnitAmountRupees: 500,
+      taxRate: 18,
+      minUnits: 1,
+      isActive: true,
+    });
+    setModal({ kind: 'tier', id: null });
+  }
+  function editTier(t: any) {
+    setTier({
+      planId: t.planId,
+      name: t.name,
+      modelType: t.modelType,
+      currency: t.currency,
+      baseAmountRupees: (Number(t.baseAmount) || 0) / 100,
+      perUnitAmountRupees: (Number(t.perUnitAmount) || 0) / 100,
+      taxRate: parseFloat(t.taxRate),
+      minUnits: t.minUnits ?? 0,
+      isActive: !!t.isActive,
+    });
+    setModal({ kind: 'tier', id: t.id });
+  }
+
+  function save() {
+    if (modal?.kind === 'product') upsertProduct.mutate();
+    if (modal?.kind === 'plan') upsertPlan.mutate();
+    if (modal?.kind === 'tier') upsertTier.mutate();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Catalog</h1>
+          <p className="text-slate-500">Products → Plans → Pricing tiers. 7 model types supported.</p>
         </div>
-        <div className="card">
-          <div className="card-body space-y-2">
-            <h2 className="font-medium">New plan</h2>
-            <select className="input" value={plan.productId} onChange={(e) => setPlan({ ...plan, productId: e.target.value })}>
-              <option value="">— pick product —</option>
-              {data?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <input className="input" placeholder="Plan name" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
-            <input className="input" placeholder="Description" value={plan.description} onChange={(e) => setPlan({ ...plan, description: e.target.value })} />
-            <button className="btn btn-primary" disabled={!plan.productId || !plan.name || createPlan.isPending} onClick={() => createPlan.mutate()}>
-              Add plan
-            </button>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-body space-y-2">
-            <h2 className="font-medium">New pricing tier</h2>
-            <select className="input" value={tier.planId} onChange={(e) => setTier({ ...tier, planId: e.target.value })}>
-              <option value="">— pick plan —</option>
-              {data?.flatMap((p: any) => p.plans.map((pl: any) => (
-                <option key={pl.id} value={pl.id}>{p.name} — {pl.name}</option>
-              )))}
-            </select>
-            <input className="input" placeholder="Tier name" value={tier.name} onChange={(e) => setTier({ ...tier, name: e.target.value })} />
-            <select className="input" value={tier.modelType} onChange={(e) => setTier({ ...tier, modelType: e.target.value as Model })}>
-              {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <input className="input" type="number" placeholder="Base ₹" value={tier.baseAmountRupees} onChange={(e) => setTier({ ...tier, baseAmountRupees: +e.target.value })} />
-              <input className="input" type="number" placeholder="Per unit ₹" value={tier.perUnitAmountRupees} onChange={(e) => setTier({ ...tier, perUnitAmountRupees: +e.target.value })} />
-              <input className="input" type="number" placeholder="Tax %" value={tier.taxRate} onChange={(e) => setTier({ ...tier, taxRate: +e.target.value })} />
-              <input className="input" type="number" placeholder="Min units" value={tier.minUnits} onChange={(e) => setTier({ ...tier, minUnits: +e.target.value })} />
-            </div>
-            <button className="btn btn-primary" disabled={!tier.planId || !tier.name || createTier.isPending} onClick={() => createTier.mutate()}>
-              Add tier
-            </button>
-          </div>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary" onClick={() => newPlan()}>+ Plan</button>
+          <button className="btn btn-secondary" onClick={() => newTier()}>+ Tier</button>
+          <button className="btn btn-primary" onClick={newProduct}>+ Product</button>
         </div>
       </div>
 
       <div className="card">
         <div className="card-body">
-          <h2 className="font-medium mb-2">Existing catalog</h2>
           {isLoading ? (
             <p>Loading…</p>
           ) : !data?.length ? (
@@ -128,13 +164,29 @@ export function Catalog() {
             <div className="space-y-4">
               {data.map((p: any) => (
                 <div key={p.id} className="border rounded-md p-3">
-                  <div className="font-medium">{p.name} <span className="text-xs text-slate-500">{p.sku}</span></div>
-                  <div className="text-xs text-slate-500 mb-2">{p.description}</div>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium">{p.name} <span className="text-xs text-slate-500">{p.sku}</span></div>
+                      <div className="text-xs text-slate-500 mb-2">{p.description}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="btn btn-secondary py-1 text-xs" onClick={() => newPlan(p.id)}>+ Plan</button>
+                      <button className="btn btn-secondary py-1 text-xs" onClick={() => editProduct(p)}>Edit</button>
+                      <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirm({ kind: 'product', id: p.id })}>Delete</button>
+                    </div>
+                  </div>
                   {p.plans?.map((pl: any) => (
-                    <div key={pl.id} className="ml-4 mb-2">
-                      <div className="text-sm font-medium">{pl.name}</div>
+                    <div key={pl.id} className="ml-4 mt-2 border-l pl-3">
+                      <div className="flex justify-between items-start">
+                        <div className="text-sm font-medium">{pl.name}</div>
+                        <div className="flex gap-2">
+                          <button className="btn btn-secondary py-1 text-xs" onClick={() => newTier(pl.id)}>+ Tier</button>
+                          <button className="btn btn-secondary py-1 text-xs" onClick={() => editPlan(pl)}>Edit</button>
+                          <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirm({ kind: 'plan', id: pl.id })}>Delete</button>
+                        </div>
+                      </div>
                       <table className="table mt-1">
-                        <thead><tr><th>Tier</th><th>Model</th><th>Base</th><th>Per unit</th><th>Tax</th></tr></thead>
+                        <thead><tr><th>Tier</th><th>Model</th><th>Base</th><th>Per unit</th><th>Tax</th><th></th></tr></thead>
                         <tbody>
                           {pl.tiers?.map((t: any) => (
                             <tr key={t.id}>
@@ -143,6 +195,12 @@ export function Catalog() {
                               <td>{fmtMoney(t.baseAmount, t.currency)}</td>
                               <td>{fmtMoney(t.perUnitAmount, t.currency)}</td>
                               <td>{t.taxRate}%</td>
+                              <td>
+                                <div className="flex gap-2 justify-end">
+                                  <button className="btn btn-secondary py-1 text-xs" onClick={() => editTier(t)}>Edit</button>
+                                  <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirm({ kind: 'tier', id: t.id })}>Delete</button>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -155,6 +213,99 @@ export function Catalog() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={modal?.kind === 'product'}
+        onClose={() => setModal(null)}
+        title={modal?.id ? 'Edit product' : 'New product'}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!prod.name || upsertProduct.isPending}>
+              {upsertProduct.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <input className="input" placeholder="Name *" value={prod.name} onChange={(e) => setProd({ ...prod, name: e.target.value })} />
+        <input className="input" placeholder="SKU" value={prod.sku} onChange={(e) => setProd({ ...prod, sku: e.target.value })} />
+        <input className="input" placeholder="Category" value={prod.category} onChange={(e) => setProd({ ...prod, category: e.target.value })} />
+        <textarea className="input min-h-[80px]" placeholder="Description" value={prod.description} onChange={(e) => setProd({ ...prod, description: e.target.value })} />
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={prod.isActive} onChange={(e) => setProd({ ...prod, isActive: e.target.checked })} />
+          Active
+        </label>
+      </Modal>
+
+      <Modal
+        open={modal?.kind === 'plan'}
+        onClose={() => setModal(null)}
+        title={modal?.id ? 'Edit plan' : 'New plan'}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!plan.productId || !plan.name || upsertPlan.isPending}>
+              {upsertPlan.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <select className="input" value={plan.productId} onChange={(e) => setPlan({ ...plan, productId: e.target.value })} disabled={!!modal?.id}>
+          <option value="">— pick product —</option>
+          {data?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <input className="input" placeholder="Plan name *" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
+        <textarea className="input min-h-[80px]" placeholder="Description" value={plan.description} onChange={(e) => setPlan({ ...plan, description: e.target.value })} />
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={plan.isActive} onChange={(e) => setPlan({ ...plan, isActive: e.target.checked })} />
+          Active
+        </label>
+      </Modal>
+
+      <Modal
+        open={modal?.kind === 'tier'}
+        onClose={() => setModal(null)}
+        title={modal?.id ? 'Edit pricing tier' : 'New pricing tier'}
+        maxWidth="max-w-2xl"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!tier.planId || !tier.name || upsertTier.isPending}>
+              {upsertTier.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <select className="input" value={tier.planId} onChange={(e) => setTier({ ...tier, planId: e.target.value })} disabled={!!modal?.id}>
+          <option value="">— pick plan —</option>
+          {data?.flatMap((p: any) => p.plans.map((pl: any) => (
+            <option key={pl.id} value={pl.id}>{p.name} — {pl.name}</option>
+          )))}
+        </select>
+        <input className="input" placeholder="Tier name *" value={tier.name} onChange={(e) => setTier({ ...tier, name: e.target.value })} />
+        <select className="input" value={tier.modelType} onChange={(e) => setTier({ ...tier, modelType: e.target.value as Model })}>
+          {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" type="number" placeholder="Base ₹" value={tier.baseAmountRupees} onChange={(e) => setTier({ ...tier, baseAmountRupees: +e.target.value })} />
+          <input className="input" type="number" placeholder="Per unit ₹" value={tier.perUnitAmountRupees} onChange={(e) => setTier({ ...tier, perUnitAmountRupees: +e.target.value })} />
+          <input className="input" type="number" placeholder="Tax %" value={tier.taxRate} onChange={(e) => setTier({ ...tier, taxRate: +e.target.value })} />
+          <input className="input" type="number" placeholder="Min units" value={tier.minUnits} onChange={(e) => setTier({ ...tier, minUnits: +e.target.value })} />
+        </div>
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={tier.isActive} onChange={(e) => setTier({ ...tier, isActive: e.target.checked })} />
+          Active
+        </label>
+      </Modal>
+
+      <ConfirmDelete
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => confirm && del.mutate(confirm)}
+        title={`Delete ${confirm?.kind}?`}
+        message={confirm?.kind === 'product' ? 'Plans and tiers under this product remain but lose their parent.' : 'Soft delete only.'}
+        busy={del.isPending}
+      />
     </div>
   );
 }

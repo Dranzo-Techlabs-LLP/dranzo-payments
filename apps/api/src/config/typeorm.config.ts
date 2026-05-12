@@ -19,6 +19,9 @@ export const buildDataSourceOptions = (cfg: ConfigService): DataSourceOptions =>
   migrationsTableName: 'typeorm_migrations',
   extra: {
     connectionLimit: 10,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 30_000,
+    connectTimeout: 15_000,
     // strict mode enforced at MySQL server level — do not relax here
   },
 });

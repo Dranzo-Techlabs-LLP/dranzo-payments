@@ -14,6 +14,7 @@ import { Catalog } from '@/features/catalog/Catalog';
 import { Subscriptions } from '@/features/subscriptions/Subscriptions';
 import { TaskBoard } from '@/features/tasks/TaskBoard';
 import { Invoices } from '@/features/invoices/Invoices';
+import { Payments } from '@/features/payments/Payments';
 import { Compliance } from '@/features/compliance/Compliance';
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/invoices" element={<Invoices />} />
+        <Route path="/payments" element={<Payments />} />
         <Route path="/compliance" element={<Compliance />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/team" element={<Team />} />

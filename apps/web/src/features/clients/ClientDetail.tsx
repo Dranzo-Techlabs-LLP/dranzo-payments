@@ -2,9 +2,30 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { api } from '@/shared/api/client';
+import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 
 type Role = 'POC' | 'BILLING' | 'TECHNICAL' | 'DECISION_MAKER' | 'OTHER';
 const ROLES: Role[] = ['POC', 'BILLING', 'TECHNICAL', 'DECISION_MAKER', 'OTHER'];
+
+interface Contact {
+  id: string;
+  name: string;
+  role: Role;
+  email?: string | null;
+  phone?: string | null;
+  isPrimary: boolean;
+}
+
+interface ContactForm {
+  name: string;
+  role: Role;
+  email: string;
+  phone: string;
+  isPrimary: boolean;
+}
+
+const EMPTY: ContactForm = { name: '', role: 'POC', email: '', phone: '', isPrimary: false };
 
 export function ClientDetail() {
   const { id = '' } = useParams();
@@ -14,17 +35,45 @@ export function ClientDetail() {
     queryFn: async () => (await api.get(`/clients/${id}`)).data,
     enabled: !!id,
   });
-  const [contact, setContact] = useState<{ name: string; role: Role; email: string; phone: string; isPrimary: boolean }>(
-    { name: '', role: 'POC', email: '', phone: '', isPrimary: false }
-  );
 
-  const addContact = useMutation({
-    mutationFn: async () => (await api.post(`/clients/${id}/contacts`, contact)).data,
+  const [mode, setMode] = useState<'closed' | 'create' | 'edit'>('closed');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ContactForm>(EMPTY);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  const upsert = useMutation({
+    mutationFn: async () =>
+      editingId
+        ? (await api.patch(`/clients/contacts/${editingId}`, form)).data
+        : (await api.post(`/clients/${id}/contacts`, form)).data,
     onSuccess: () => {
-      setContact({ name: '', role: 'POC', email: '', phone: '', isPrimary: false });
       qc.invalidateQueries({ queryKey: ['client', id] });
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      setMode('closed');
+      setForm(EMPTY);
+      setEditingId(null);
     },
   });
+
+  const del = useMutation({
+    mutationFn: async (cid: string) => api.delete(`/clients/contacts/${cid}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client', id] });
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      setConfirmId(null);
+    },
+  });
+
+  function openCreate() {
+    setForm(EMPTY);
+    setEditingId(null);
+    setMode('create');
+  }
+  function openEdit(c: Contact) {
+    setForm({ name: c.name, role: c.role, email: c.email ?? '', phone: c.phone ?? '', isPrimary: c.isPrimary });
+    setEditingId(c.id);
+    setMode('edit');
+  }
 
   if (isLoading || !data) return <p>Loading…</p>;
 
@@ -48,45 +97,71 @@ export function ClientDetail() {
 
       <div className="card">
         <div className="card-body space-y-3">
-          <h2 className="font-medium">Contacts</h2>
+          <div className="flex items-end justify-between">
+            <h2 className="font-medium">Contacts</h2>
+            <button className="btn btn-primary py-1 text-xs" onClick={openCreate}>+ Add contact</button>
+          </div>
           <table className="table">
-            <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead>
+            <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th><th></th></tr></thead>
             <tbody>
               {data.contacts?.length ? (
-                data.contacts.map((c: any) => (
+                data.contacts.map((c: Contact) => (
                   <tr key={c.id}>
                     <td>{c.name}</td>
                     <td>{c.role}</td>
                     <td className="text-xs">{c.email ?? '—'}</td>
                     <td className="text-xs">{c.phone ?? '—'}</td>
                     <td>{c.isPrimary ? '⭐' : ''}</td>
+                    <td>
+                      <div className="flex gap-2 justify-end">
+                        <button className="btn btn-secondary py-1 text-xs" onClick={() => openEdit(c)}>Edit</button>
+                        <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirmId(c.id)}>Delete</button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={5} className="text-slate-500 text-center py-3">No contacts.</td></tr>
+                <tr><td colSpan={6} className="text-slate-500 text-center py-3">No contacts.</td></tr>
               )}
             </tbody>
           </table>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-3 border-t">
-            <input className="input" placeholder="Name" value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} />
-            <select className="input" value={contact.role} onChange={(e) => setContact({ ...contact, role: e.target.value as Role })}>
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <input className="input" type="email" placeholder="Email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} />
-            <input className="input" placeholder="Phone" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} />
-            <label className="text-sm flex items-center gap-2">
-              <input type="checkbox" checked={contact.isPrimary} onChange={(e) => setContact({ ...contact, isPrimary: e.target.checked })} />
-              Mark as primary POC
-            </label>
-            <div className="flex justify-end">
-              <button className="btn btn-primary" disabled={!contact.name || addContact.isPending} onClick={() => addContact.mutate()}>
-                {addContact.isPending ? 'Adding…' : 'Add contact'}
-              </button>
-            </div>
-          </div>
         </div>
       </div>
+
+      <Modal
+        open={mode !== 'closed'}
+        onClose={() => setMode('closed')}
+        title={mode === 'edit' ? 'Edit contact' : 'New contact'}
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setMode('closed')}>Cancel</button>
+            <button className="btn btn-primary" disabled={!form.name || upsert.isPending} onClick={() => upsert.mutate()}>
+              {upsert.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input className="input" placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <input className="input" type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <input className="input" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <label className="text-sm flex items-center gap-2 md:col-span-2">
+            <input type="checkbox" checked={form.isPrimary} onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })} />
+            Mark as primary POC
+          </label>
+        </div>
+      </Modal>
+
+      <ConfirmDelete
+        open={!!confirmId}
+        onClose={() => setConfirmId(null)}
+        onConfirm={() => confirmId && del.mutate(confirmId)}
+        title="Delete contact?"
+        busy={del.isPending}
+      />
     </div>
   );
 }

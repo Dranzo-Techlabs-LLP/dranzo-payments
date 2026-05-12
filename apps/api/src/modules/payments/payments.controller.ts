@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Ip,
   Param,
   Post,
@@ -46,5 +49,16 @@ export class PaymentsController {
     @Ip() ip: string,
   ) {
     return this.svc.create(user, dto, ip);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.FINANCE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Ip() ip: string,
+  ) {
+    return this.svc.remove(user, id, ip);
   }
 }

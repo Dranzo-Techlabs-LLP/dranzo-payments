@@ -100,4 +100,36 @@ export class PaymentsService {
 
     return { payment: saved, invoiceClosed, invoice: inv };
   }
+
+  async remove(user: AuthenticatedUser, id: string, ip?: string) {
+    const p = await this.payments.findOne({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!p) throw new NotFoundException();
+    await this.payments.softRemove(p);
+
+    // If the parent invoice was PAID, recalculate: did this payment close it?
+    const inv = await this.invoices.findOne({
+      where: { id: p.invoiceId, organizationId: user.organizationId },
+    });
+    if (inv && inv.status === InvoiceStatus.PAID) {
+      const remaining = (await this.payments.find({
+        where: { invoiceId: inv.id },
+      })).reduce((s, x) => s + x.amount, 0);
+      if (remaining < inv.total) {
+        inv.status = InvoiceStatus.SENT;
+        inv.paidAt = null;
+        await this.invoices.save(inv);
+      }
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.userId,
+      action: 'delete_payment',
+      entity: 'Payment',
+      entityId: id,
+      ip,
+    });
+  }
 }

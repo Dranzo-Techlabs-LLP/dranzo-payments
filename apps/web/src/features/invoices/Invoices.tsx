@@ -4,6 +4,7 @@ import { api } from '@/shared/api/client';
 import { fmtMoney } from '@/shared/lib/money';
 import { fmtDate } from '@/shared/lib/format-date';
 import { useAuthStore } from '@/shared/state/auth-store';
+import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 
 type Method = 'BANK' | 'UPI' | 'CARD' | 'CHEQUE' | 'OTHER';
 const METHODS: Method[] = ['BANK', 'UPI', 'CARD', 'CHEQUE', 'OTHER'];
@@ -18,6 +19,7 @@ export function Invoices() {
   });
 
   const [payState, setPayState] = useState<Record<string, { method: Method; ref: string; date: string }>>({});
+  const [confirmVoid, setConfirmVoid] = useState<string | null>(null);
 
   const pay = useMutation({
     mutationFn: async (vars: { invoiceId: string; amount: number; method: Method; ref: string; date: string }) =>
@@ -33,11 +35,20 @@ export function Invoices() {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['subscriptions'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['payments'] });
+    },
+  });
+
+  const voidIt = useMutation({
+    mutationFn: async (id: string) => (await api.patch(`/invoices/${id}/void`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      setConfirmVoid(null);
     },
   });
 
   function openHtml(id: string) {
-    // open the HTML render in a new tab with the bearer token
     fetch(`/api/invoices/${id}/html`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.text())
       .then((html) => {
@@ -54,7 +65,7 @@ export function Invoices() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Invoices</h1>
-        <p className="text-slate-500">Auto-numbered per org per FY. Open the HTML preview or mark paid here.</p>
+        <p className="text-slate-500">Auto-numbered per org per FY. View HTML, mark paid, or void.</p>
       </div>
 
       <div className="card">
@@ -70,6 +81,7 @@ export function Invoices() {
                 {data?.map((i: any) => {
                   const st = payState[i.id] ?? { method: 'BANK' as Method, ref: '', date: new Date().toISOString().slice(0, 10) };
                   const canPay = i.status === 'SENT' || i.status === 'OVERDUE';
+                  const canVoid = i.status !== 'PAID' && i.status !== 'VOID';
                   return (
                     <tr key={i.id}>
                       <td className="text-xs font-mono">{i.invoiceNo}</td>
@@ -105,6 +117,9 @@ export function Invoices() {
                               </div>
                             </details>
                           )}
+                          {canVoid && (
+                            <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirmVoid(i.id)}>Void</button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -118,6 +133,15 @@ export function Invoices() {
           )}
         </div>
       </div>
+
+      <ConfirmDelete
+        open={!!confirmVoid}
+        onClose={() => setConfirmVoid(null)}
+        onConfirm={() => confirmVoid && voidIt.mutate(confirmVoid)}
+        title="Void invoice?"
+        message="The invoice number stays but the document is marked VOID. A fresh invoice can then be re-issued for the same cycle."
+        busy={voidIt.isPending}
+      />
     </div>
   );
 }

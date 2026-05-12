@@ -125,6 +125,25 @@ export class SubscriptionsService {
     return saved;
   }
 
+  async remove(user: AuthenticatedUser, id: string, ip?: string) {
+    const s = await this.findOne(user.organizationId, id);
+    await this.subs.softRemove(s);
+    await this.events.save(this.events.create({
+      organizationId: user.organizationId,
+      subscriptionId: s.id,
+      eventType: 'deleted',
+      actorId: user.userId,
+    }));
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.userId,
+      action: 'delete_subscription',
+      entity: 'Subscription',
+      entityId: id,
+      ip,
+    });
+  }
+
   /** Move the subscription forward one cycle. Called after invoice marked paid. */
   async rollForward(subscriptionId: string, actorId?: string) {
     const s = await this.subs.findOne({ where: { id: subscriptionId } });

@@ -138,4 +138,34 @@ export class CatalogService {
     });
     return saved;
   }
+
+  async deleteProduct(user: AuthenticatedUser, id: string, ip?: string) {
+    const p = await this.products.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!p) throw new NotFoundException();
+    await this.products.softRemove(p);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'delete_product', entity: 'Product', entityId: id, ip,
+    });
+  }
+
+  async deletePlan(user: AuthenticatedUser, id: string, ip?: string) {
+    const p = await this.plans.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!p) throw new NotFoundException();
+    await this.plans.softRemove(p);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'delete_plan', entity: 'Plan', entityId: id, ip,
+    });
+  }
+
+  async deleteTier(user: AuthenticatedUser, id: string, ip?: string) {
+    const t = await this.tiers.findOne({ where: { id, organizationId: user.organizationId } });
+    if (!t) throw new NotFoundException();
+    await this.tiers.softRemove(t);
+    await this.audit.record({
+      organizationId: user.organizationId, actorId: user.userId,
+      action: 'delete_pricing_tier', entity: 'PricingTier', entityId: id, ip,
+    });
+  }
 }

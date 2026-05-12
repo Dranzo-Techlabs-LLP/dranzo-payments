@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Ip,
   Param,
   Patch,
@@ -61,5 +64,12 @@ export class SubscriptionsController {
     @Ip() ip: string,
   ) {
     return this.svc.update(user, id, dto, ip);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Ip() ip: string) {
+    return this.svc.remove(user, id, ip);
   }
 }

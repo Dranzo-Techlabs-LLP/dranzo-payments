@@ -131,6 +131,19 @@ export class TasksService {
     return this.repo.save(t);
   }
 
+  async remove(user: AuthenticatedUser, id: string, ip?: string) {
+    const t = await this.findOne(user.organizationId, id);
+    await this.repo.softRemove(t);
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.userId,
+      action: 'delete_task',
+      entity: 'Task',
+      entityId: id,
+      ip,
+    });
+  }
+
   async moveToOverdue(orgId: string, type: LinkedEntityType, linkedId: string, cycleKey: string) {
     const t = await this.findByLink(orgId, type, linkedId, cycleKey);
     if (!t || t.status === TaskStatus.DONE) return null;

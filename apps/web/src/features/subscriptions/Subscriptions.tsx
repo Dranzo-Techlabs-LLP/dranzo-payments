@@ -3,9 +3,32 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { fmtMoney } from '@/shared/lib/money';
 import { fmtDate } from '@/shared/lib/format-date';
+import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDelete } from '@/shared/ui/ConfirmDelete';
 
-type Cycle = 'MONTHLY' | 'QUARTERLY' | 'HALFYEARLY' | 'YEARLY' | 'CUSTOM';
+type Cycle = 'MONTHLY' | 'QUARTERLY' | 'HALFYEARLY' | 'YEARLY';
 const CYCLES: Cycle[] = ['MONTHLY', 'QUARTERLY', 'HALFYEARLY', 'YEARLY'];
+
+type SubStatus = 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED';
+const STATUSES: SubStatus[] = ['TRIAL', 'ACTIVE', 'PAUSED', 'CANCELLED'];
+
+interface CreateForm {
+  clientId: string;
+  pricingTierId: string;
+  billingCycle: Cycle;
+  startDate: string;
+  unitCount: number;
+  reminderLeadDays: number;
+  autoRenew: boolean;
+}
+
+interface EditForm {
+  unitCount: number;
+  reminderLeadDays: number;
+  autoRenew: boolean;
+  status: SubStatus;
+  notes: string;
+}
 
 export function Subscriptions() {
   const qc = useQueryClient();
@@ -29,23 +52,37 @@ export function Subscriptions() {
     return result;
   }, [products.data]);
 
-  const [form, setForm] = useState({
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  const [form, setForm] = useState<CreateForm>({
     clientId: '',
     pricingTierId: '',
-    billingCycle: 'MONTHLY' as Cycle,
+    billingCycle: 'MONTHLY',
     startDate: new Date().toISOString().slice(0, 10),
     unitCount: 1,
     reminderLeadDays: 7,
     autoRenew: true,
   });
+  const [edit, setEdit] = useState<EditForm>({ unitCount: 1, reminderLeadDays: 7, autoRenew: true, status: 'ACTIVE', notes: '' });
 
   const create = useMutation({
     mutationFn: async () => {
       const tier = tiers.find((t) => t.id === form.pricingTierId);
-      const body = { ...form, planId: tier?.planId };
-      return (await api.post('/subscriptions', body)).data;
+      return (await api.post('/subscriptions', { ...form, planId: tier?.planId })).data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['subscriptions'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setCreating(false); },
+  });
+
+  const update = useMutation({
+    mutationFn: async () => editingId ? (await api.patch(`/subscriptions/${editingId}`, edit)).data : null,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setEditingId(null); },
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: string) => api.delete(`/subscriptions/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subscriptions'] }); setConfirmId(null); },
   });
 
   const generateInvoice = useMutation({
@@ -54,39 +91,25 @@ export function Subscriptions() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
   });
 
+  function openEdit(s: any) {
+    setEdit({
+      unitCount: s.unitCount,
+      reminderLeadDays: s.reminderLeadDays,
+      autoRenew: s.autoRenew,
+      status: s.status,
+      notes: s.notes ?? '',
+    });
+    setEditingId(s.id);
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Subscriptions</h1>
-        <p className="text-slate-500">Map a client to a plan + pricing tier + billing cycle.</p>
-      </div>
-
-      <div className="card">
-        <div className="card-body space-y-3">
-          <h2 className="font-medium">New subscription</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <select className="input" value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
-              <option value="">— pick client —</option>
-              {clients.data?.map((c: any) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
-            </select>
-            <select className="input" value={form.pricingTierId} onChange={(e) => setForm({ ...form, pricingTierId: e.target.value })}>
-              <option value="">— pick pricing tier —</option>
-              {tiers.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-            <select className="input" value={form.billingCycle} onChange={(e) => setForm({ ...form, billingCycle: e.target.value as Cycle })}>
-              {CYCLES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-            <input className="input" type="number" placeholder="Unit count" value={form.unitCount} onChange={(e) => setForm({ ...form, unitCount: +e.target.value })} />
-            <input className="input" type="number" placeholder="Reminder lead days" value={form.reminderLeadDays} onChange={(e) => setForm({ ...form, reminderLeadDays: +e.target.value })} />
-          </div>
-          {create.isError && <p className="text-red-600 text-sm">{(create.error as any)?.response?.data?.message || 'Failed'}</p>}
-          <div className="flex justify-end">
-            <button className="btn btn-primary" disabled={!form.clientId || !form.pricingTierId || create.isPending} onClick={() => create.mutate()}>
-              {create.isPending ? 'Creating…' : 'Create subscription'}
-            </button>
-          </div>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Subscriptions</h1>
+          <p className="text-slate-500">Map a client to a plan + pricing tier + billing cycle.</p>
         </div>
+        <button className="btn btn-primary" onClick={() => setCreating(true)}>+ New subscription</button>
       </div>
 
       <div className="card">
@@ -109,13 +132,11 @@ export function Subscriptions() {
                     <td>{fmtDate(s.nextRenewalDate)}</td>
                     <td><span className="badge bg-slate-100">{s.status}</span></td>
                     <td>
-                      <button
-                        className="btn btn-secondary"
-                        disabled={generateInvoice.isPending}
-                        onClick={() => generateInvoice.mutate(s.id)}
-                      >
-                        Generate invoice
-                      </button>
+                      <div className="flex gap-2 justify-end">
+                        <button className="btn btn-secondary py-1 text-xs" onClick={() => generateInvoice.mutate(s.id)} disabled={generateInvoice.isPending}>Invoice</button>
+                        <button className="btn btn-secondary py-1 text-xs" onClick={() => openEdit(s)}>Edit</button>
+                        <button className="btn btn-danger py-1 text-xs" onClick={() => setConfirmId(s.id)}>Delete</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -132,6 +153,78 @@ export function Subscriptions() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="New subscription"
+        maxWidth="max-w-2xl"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
+            <button className="btn btn-primary" disabled={!form.clientId || !form.pricingTierId || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? 'Creating…' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <select className="input" value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+            <option value="">— pick client —</option>
+            {clients.data?.map((c: any) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+          </select>
+          <select className="input" value={form.pricingTierId} onChange={(e) => setForm({ ...form, pricingTierId: e.target.value })}>
+            <option value="">— pick pricing tier —</option>
+            {tiers.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+          <select className="input" value={form.billingCycle} onChange={(e) => setForm({ ...form, billingCycle: e.target.value as Cycle })}>
+            {CYCLES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+          <input className="input" type="number" placeholder="Unit count" value={form.unitCount} onChange={(e) => setForm({ ...form, unitCount: +e.target.value })} />
+          <input className="input" type="number" placeholder="Reminder lead days" value={form.reminderLeadDays} onChange={(e) => setForm({ ...form, reminderLeadDays: +e.target.value })} />
+          <label className="text-sm flex items-center gap-2 md:col-span-2">
+            <input type="checkbox" checked={form.autoRenew} onChange={(e) => setForm({ ...form, autoRenew: e.target.checked })} />
+            Auto-renew
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!editingId}
+        onClose={() => setEditingId(null)}
+        title="Edit subscription"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={() => update.mutate()} disabled={update.isPending}>
+              {update.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input className="input" type="number" placeholder="Unit count" value={edit.unitCount} onChange={(e) => setEdit({ ...edit, unitCount: +e.target.value })} />
+          <input className="input" type="number" placeholder="Reminder lead days" value={edit.reminderLeadDays} onChange={(e) => setEdit({ ...edit, reminderLeadDays: +e.target.value })} />
+          <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as SubStatus })}>
+            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <label className="text-sm flex items-center gap-2">
+            <input type="checkbox" checked={edit.autoRenew} onChange={(e) => setEdit({ ...edit, autoRenew: e.target.checked })} />
+            Auto-renew
+          </label>
+          <textarea className="input md:col-span-2 min-h-[80px]" placeholder="Notes" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
+        </div>
+      </Modal>
+
+      <ConfirmDelete
+        open={!!confirmId}
+        onClose={() => setConfirmId(null)}
+        onConfirm={() => confirmId && del.mutate(confirmId)}
+        title="Delete subscription?"
+        message="Subscription is soft-removed. Existing invoices stay."
+        busy={del.isPending}
+      />
     </div>
   );
 }

@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Ip, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/upsert-task.dto';
@@ -39,5 +51,12 @@ export class TasksController {
     @Ip() ip: string,
   ) {
     return this.svc.update(user, id, dto, ip);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.FINANCE, Role.ACCOUNT_MANAGER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Ip() ip: string) {
+    return this.svc.remove(user, id, ip);
   }
 }

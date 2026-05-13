@@ -42,3 +42,6 @@ storage/
 # DB local
 *.sqlite
 *.sqlite3
+
+# Deploy artefacts
+dist-bundle.tar.gz

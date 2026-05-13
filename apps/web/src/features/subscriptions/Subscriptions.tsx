@@ -93,7 +93,6 @@ export function Subscriptions() {
   const [edit, setEdit] = useState<EditForm>(EDIT_EMPTY);
 
   const [preview, setPreview] = useState<{ subtotal: number; tax: number; total: number; currency: string } | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
 
   // Live preview during create — compute locally to avoid round trips.
   useEffect(() => {
